@@ -12,6 +12,9 @@ dependencies = [
 # SAME entry, dispatching on argv[0]'s basename (BusyBox-style, the Python way).
 # Heavy generators (smpl-gen / smpl-cloud / smpl-transcribe / smpl-stems / smpl-synth /
 # smpl-embed) are intentionally NOT here — they are separate PATH-discovered tools.
+# Only declare a `smpl-<x>` shim once subcommands/<x>.py exists — declaring a shim ahead of
+# its module makes `smpl <x>` fall through to the shim and exec-loop. Each analysis/edit
+# subcommand re-adds its shim in the same change that lands its module.
 [project.scripts]
 smpl = "smpl_cli.dispatch:main"
 smpl-read = "smpl_cli.dispatch:main"
@@ -22,18 +25,6 @@ smpl-as-wav = "smpl_cli.dispatch:main"
 smpl-from-wav = "smpl_cli.dispatch:main"
 smpl-cat = "smpl_cli.dispatch:main"
 smpl-describe = "smpl_cli.dispatch:main"
-smpl-select = "smpl_cli.dispatch:main"
-smpl-filter = "smpl_cli.dispatch:main"
-smpl-env = "smpl_cli.dispatch:main"
-smpl-fx = "smpl_cli.dispatch:main"
-smpl-eq = "smpl_cli.dispatch:main"
-smpl-slice = "smpl_cli.dispatch:main"
-smpl-loudness = "smpl_cli.dispatch:main"
-smpl-spectral = "smpl_cli.dispatch:main"
-smpl-qc = "smpl_cli.dispatch:main"
-smpl-spectrogram = "smpl_cli.dispatch:main"
-smpl-convert = "smpl_cli.dispatch:main"
-smpl-view = "smpl_cli.dispatch:main"
 
 [build-system]
 requires = ["hatchling"]

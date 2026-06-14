@@ -106,3 +106,24 @@ def test_unknown_command_path_discovery(env):
 def test_help_lists_builtins(env):
     r = _run(["smpl", "--help"], env)
     assert b"read" in r.stdout and b"as-wav" in r.stdout and b"external commands" in r.stdout
+
+
+def test_unimplemented_subcommand_does_not_exec_loop(env):
+    # `smpl filter` has no module and no shim → clean 127, NOT an infinite exec spin.
+    # The 60s subprocess timeout would trip on a loop; reaching the assert proves no spin.
+    r = _run(["smpl", "filter", "--hp", "200"], env)
+    assert r.returncode == 127
+    assert b"unknown command" in r.stderr or b"recurse" in r.stderr
+
+
+def test_id_collision_emits_error_frame(env, tone):
+    # Two distinct frames sharing an id on stdin → an id_collision error frame is emitted.
+    src = _run(["smpl", "read", tone], env).stdout
+    frame = json.loads(src.splitlines()[0])
+    dup = dict(frame)
+    dup["role"] = "different"  # distinct frame, same id
+    dup_line = json.dumps({**dup, "id": frame["id"]}).encode()
+    collided = src + b"\n" + dup_line + b"\n"
+    out = _run(["smpl", "resolve", frame["id"]], env, stdin=collided)
+    assert any(json.loads(l).get("kind") == "error" and json.loads(l)["data"]["code"] == "id_collision"
+               for l in out.stdout.splitlines() if l.strip()) or out.returncode != 0

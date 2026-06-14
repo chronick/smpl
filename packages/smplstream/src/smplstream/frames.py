@@ -167,12 +167,16 @@ def validate_frame(frame: dict) -> list[str]:
             problems.append(f"`hash` not in canonical form: {frame['hash']!r}")
     if has_data and _serialized_data_size(frame) > MAX_INLINE_BYTES:
         problems.append(f"inline `data` exceeds {MAX_INLINE_BYTES} bytes; move to CAS")
+    if kind in _HASH_KINDS and not (has_hash or has_data):
+        problems.append(f"`{kind}` frame must carry a payload (`hash` or, for lazy promises, a `hash`)")
     if kind == "error":
         d = frame.get("data") or {}
         from .errors import ERROR_CODES
 
         if not isinstance(d, dict) or d.get("code") not in ERROR_CODES:
             problems.append("`error` frame must carry data.code from the standard enum")
+        elif not d.get("message"):
+            problems.append("`error` frame data MUST include a `message`")
     if kind == "vector":
         meta = frame.get("meta") or {}
         dim = meta.get("dim")
@@ -185,3 +189,21 @@ def validate_frame(frame: dict) -> list[str]:
 
 def is_kind(frame: dict, kind: str) -> bool:
     return frame.get("kind") == kind
+
+
+def find_duplicate_ids(frames: list[dict]) -> list[str]:
+    """Return ids carried by two or more DISTINCT frames (a normative id collision).
+
+    Identical repeats of the same frame (content-id dedup) are not collisions.
+    """
+    from .conformance import check_id_collisions
+
+    seen = set()
+    out = []
+    for problem in check_id_collisions(frames):
+        # problem text ends with the colliding id
+        fid = problem.rsplit(" ", 1)[-1]
+        if fid not in seen:
+            seen.add(fid)
+            out.append(fid)
+    return out

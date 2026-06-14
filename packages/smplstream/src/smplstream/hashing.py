@@ -45,12 +45,18 @@ def canonical_pcm_bytes(samples: np.ndarray) -> bytes:
     ``soundfile`` native shape). C-contiguous ``(frames, channels)`` → interleaved.
     """
     arr = np.ascontiguousarray(samples)
+    if arr.ndim > 2:
+        raise ValueError(f"sample array has {arr.ndim} dims; expected (frames,) or (frames, channels)")
     # Force IEEE float32 little-endian regardless of host byte order.
     le_f32 = arr.astype("<f4", copy=False)
     return le_f32.tobytes(order="C")
 
 
 def _channels(samples: np.ndarray) -> int:
+    if samples.ndim > 2:
+        # The canonical form is strictly (frames,) or (frames, channels); a >2-D array is
+        # not representable and must fail loudly rather than produce a wrong channel count.
+        raise ValueError(f"sample array has {samples.ndim} dims; expected mono (1-D) or (frames, channels)")
     return 1 if samples.ndim == 1 else int(samples.shape[1])
 
 
@@ -60,6 +66,12 @@ def audio_hash_from_pcm(pcm_bytes: bytes, sample_rate: int, channels: int) -> st
         raise ValueError(f"channel count {channels} out of range [1, {_MAX_CHANNELS}]")
     if not (0 < sample_rate < 2**32):
         raise ValueError(f"sample rate {sample_rate} out of range for u32")
+    # A (pcm_bytes, channels) pair that can't form whole interleaved float32 frames is
+    # structurally impossible and would otherwise produce a silently-valid wrong key.
+    if len(pcm_bytes) % (4 * channels) != 0:
+        raise ValueError(
+            f"pcm byte length {len(pcm_bytes)} not a multiple of 4*{channels} (float32 frame size)"
+        )
     hasher = blake3()
     hasher.update(pcm_bytes)
     # Bind format identity so rate/channels/format can't alias to one key.

@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import fcntl
 import json
 import os
 import re
@@ -23,6 +24,9 @@ from . import hashing
 from .errors import IntegrityError, PathSafetyError
 
 HASH_RE = re.compile(r"^blake3:[0-9a-f]{64}$")
+# `ext` is read back from the on-disk meta sidecar and interpolated into a path; revalidate
+# it (not just the hash) so a corrupt/crafted meta can't smuggle a traversal component.
+EXT_RE = re.compile(r"^[a-z0-9]{1,16}$")
 
 # MIME → filesystem extension. The CAS stores the materialized bytes; ext is derived
 # from the frame's `media` so external tools (sox/ffmpeg/Audacity) see a sane filename.
@@ -66,6 +70,8 @@ def ext_for_media(media: Optional[str]) -> str:
 
 def _blob_path(h: str, ext: str) -> Path:
     hexd = _hex(h)
+    if not EXT_RE.match(ext):
+        raise PathSafetyError(f"unsafe blob extension: {ext!r}")
     return cas_dir() / hexd[:2] / f"{hexd}.{ext}"
 
 
@@ -186,21 +192,35 @@ def _lock_path() -> Path:
 
 
 def iter_blobs():
-    """Yield ``(hash, blob_path, meta_path)`` for every stored blob."""
+    """Yield ``(hash, blob_path, meta_path)`` for every stored blob.
+
+    Also yields **orphan blobs** — a blob file with no sibling ``.meta.json`` (e.g. a crash
+    between the blob write and the meta write) — as ``(hash, blob_path, None)`` so GC can
+    reclaim them instead of leaking forever.
+    """
     root = cas_dir()
     if not root.exists():
         return
     for shard in sorted(root.iterdir()):
         if not shard.is_dir() or len(shard.name) != 2:
             continue
+        seen_hex: set[str] = set()
         for meta in sorted(shard.glob("*.meta.json")):
             hexd = meta.name[: -len(".meta.json")]
+            seen_hex.add(hexd)
             h = "blake3:" + hexd
             try:
                 ext = json.loads(meta.read_text()).get("ext", "bin")
             except (OSError, json.JSONDecodeError):
                 continue
             yield h, shard / f"{hexd}.{ext}", meta
+        # Orphan blobs: any file whose <hex> stem has no committed meta sidecar.
+        for blob in sorted(shard.iterdir()):
+            if blob.name.endswith(".meta.json") or blob.name.startswith(".tmp-"):
+                continue
+            hexd = blob.name.split(".", 1)[0]
+            if len(hexd) == 64 and hexd not in seen_hex:
+                yield "blake3:" + hexd, blob, None
 
 
 def gc(
@@ -222,10 +242,14 @@ def gc(
     removed, kept, reserved = [], [], []
 
     lock = _lock_path()
-    # Best-effort exclusive lock via O_EXCL create; refuse to GC if one is held.
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    # Advisory flock held for the GC duration; the KERNEL releases it on process death, so a
+    # crashed GC can't leave a permanent stale lock (the O_EXCL-file approach could).
+    lock_fd = os.open(str(lock), os.O_CREAT | os.O_RDWR)
     try:
-        lock_fd = os.open(str(lock), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-    except FileExistsError:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except (BlockingIOError, OSError):
+        os.close(lock_fd)
         raise IntegrityError("CAS GC lock held by another process; refusing to collect")
     try:
         for h, blob_path, meta_path in iter_blobs():
@@ -241,17 +265,16 @@ def gc(
                 continue
             if not dry_run:
                 for p in (blob_path, meta_path):
+                    if p is None:  # orphan blob has no meta sidecar
+                        continue
                     try:
                         p.unlink()
                     except OSError:
                         pass
             removed.append(h)
     finally:
+        fcntl.flock(lock_fd, fcntl.LOCK_UN)
         os.close(lock_fd)
-        try:
-            os.unlink(lock)
-        except OSError:
-            pass
 
     return {
         "removed": removed,

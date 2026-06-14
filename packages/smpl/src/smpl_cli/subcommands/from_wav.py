@@ -1,13 +1,14 @@
 """`smpl from-wav` — read raw WAV from stdin, CAS it under a fresh canonical-PCM hash,
 emit an `audio` frame (the bridge back IN from sox/ffmpeg).
 
-`--derives-from <id|role>` reattaches provenance: a frame **id** becomes real `lineage`;
-a **role** string (not an id, hence unresolvable in-stream after `as-wav` consumed the
-originals) is recorded in `params.derives_from` so lineage closure stays intact. The bytes
-are new audio (the external op changed them), so they correctly get a new content hash; a
-re-run of the identical external pipe over the same input is memoizable on the `from-wav`
-op going forward (it does NOT dedup against the pre-detour audio — an opaque op can't be
-proven equal).
+`--derives-from <id|role>` records provenance in `params.derives_from`. It is deliberately
+NOT a `lineage` edge: the raw-WAV bridge swallows the original frames (`as-wav` emits raw
+bytes, not frames; `from-wav` emits only the single new audio frame with no passthrough), so
+there is no in-stream frame for a `lineage` id to point at — minting one would dangle and
+fail lineage closure. The bytes are new audio (the external op changed them), so they
+correctly get a new content hash; a re-run of the identical external pipe over the same
+input is memoizable on the `from-wav` op going forward (it does NOT dedup against the
+pre-detour audio — an opaque op can't be proven equal).
 """
 
 from __future__ import annotations
@@ -24,7 +25,7 @@ OP_VERSION = "from-wav@1"
 def add_arguments(parser):
     parser.add_argument("--role", default="from-wav", help="role for the emitted audio frame")
     parser.add_argument("--derives-from", dest="derives_from",
-                        help="upstream frame id (→ lineage) or role (→ params.derives_from)")
+                        help="upstream role/id label, recorded as provenance (params.derives_from)")
 
 
 def run(args) -> int:
@@ -38,13 +39,11 @@ def run(args) -> int:
     h = cas.put_audio_bytes(wav_bytes)
     meta = cas.read_meta(h) or {}
 
-    lineage = None
+    # Provenance only — never a lineage edge: the bridge has no in-stream frame to close
+    # against, so a `lineage` id here would dangle and fail lineage closure.
     params = {"input_hash": h, "via": "raw-wav-bridge"}
     if args.derives_from:
-        if cas.HASH_RE.match(args.derives_from) or args.derives_from.startswith("rand:"):
-            lineage = [args.derives_from]  # a real frame id → resolvable lineage
-        else:
-            params["derives_from"] = args.derives_from  # a role label → provenance only
+        params["derives_from"] = args.derives_from
 
     frame = F.audio_frame(
         h,
@@ -55,7 +54,7 @@ def run(args) -> int:
         op="from-wav",
         op_version=OP_VERSION,
         params=params,
-        lineage=lineage,
+        lineage=None,
         fmt=meta.get("fmt"),
     )
     emit([frame])

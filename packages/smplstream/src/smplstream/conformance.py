@@ -52,6 +52,32 @@ def check_lineage_closure(
     return problems
 
 
+def check_id_collisions(frames: list[dict]) -> list[str]:
+    """Two frames sharing an `id` is a normative error (spec → *Id assignment*).
+
+    Note: a content-derived id legitimately repeats when the SAME frame appears twice (dedup);
+    that is not a collision. A collision is two *different* frames (differing defining fields)
+    sharing one id. We approximate "different" by comparing the JSON minus volatile fields.
+    """
+    from .memo import canonical_json
+
+    def _shape(f: dict) -> bytes:
+        return canonical_json({k: v for k, v in f.items() if k not in ("seq", "consumed")})
+
+    by_id: dict[str, bytes] = {}
+    problems = []
+    for f in frames:
+        fid = f.get("id")
+        if fid is None:
+            continue
+        shape = _shape(f)
+        if fid in by_id and by_id[fid] != shape:
+            problems.append(f"id_collision: two distinct frames share id {fid}")
+        else:
+            by_id.setdefault(fid, shape)
+    return problems
+
+
 def check_ordering(frames: list[dict]) -> list[str]:
     """`of`/`lineage` targets must appear earlier in the stream than the referrer."""
     seen: set[str] = set()
@@ -85,4 +111,5 @@ def check_all(
     problems += check_passthrough(input_frames, output_frames)
     problems += check_lineage_closure(output_frames, cas_resolves=cas_resolves)
     problems += check_ordering(output_frames)
+    problems += check_id_collisions(output_frames)
     return problems

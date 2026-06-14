@@ -67,3 +67,22 @@ def test_gc_dry_run_does_not_delete(isolated_cas, tone_wav_bytes):
     summary = cas.gc(keep=set(), grace_seconds=0, dry_run=True)
     assert h in summary["removed"]
     assert cas.exists(h)  # dry-run: still there
+
+
+def test_gc_reclaims_orphan_blob(isolated_cas):
+    # Simulate a crash between the blob write and the meta write: a blob with no sidecar.
+    h = "blake3:" + "ab" * 32
+    cas._atomic_write(cas._blob_path(h, "wav"), b"orphan bytes")
+    assert not cas.exists(h)  # no meta → not "present" via exists()
+    found = [bh for bh, _, mp in cas.iter_blobs() if mp is None]
+    assert h in found  # iter_blobs surfaces the orphan
+    summary = cas.gc(keep=set(), grace_seconds=0, dry_run=False)
+    assert h in summary["removed"]
+    assert not cas._blob_path(h, "wav").exists()  # orphan reclaimed
+
+
+def test_ext_revalidated_on_read(isolated_cas):
+    from smplstream.errors import PathSafetyError
+
+    with pytest.raises(PathSafetyError):
+        cas._blob_path("blake3:" + "ab" * 32, "wav/../../etc")  # crafted ext rejected

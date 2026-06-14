@@ -39,6 +39,13 @@ def test_seq_tiebreak():
     assert S.select(frames, role="x")[0]["id"] == "id1"
 
 
+def test_mixed_seq_falls_back_to_stream_position():
+    # A no-seq frame must NOT jump ahead of a high-seq frame: with the set non-homogeneous,
+    # last-wins falls back to stream position for ALL, so the later-emitted frame wins.
+    frames = [_audio("x", "id1", seq=9), _audio("x", "id2")]  # id2 has no seq, emitted later
+    assert S.select(frames, role="x")[0]["id"] == "id2"
+
+
 def test_resolve_single_audio_not_found():
     with pytest.raises(ResolutionError) as ei:
         S.resolve_single_audio([], role="stem:bass")

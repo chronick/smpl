@@ -20,12 +20,13 @@ key to the live default table).
 
 from __future__ import annotations
 
+import struct
 import subprocess
 from typing import Any, Iterable
 
 from blake3 import blake3
 
-_SEP = b"\x00"  # component separator that can't appear inside hex/op tokens ambiguously
+_SEP = b"\x00"  # component separator between the FIXED-ARITY fields only (op, version, …)
 
 
 def _canonical_number(x: float | int) -> Any:
@@ -65,9 +66,17 @@ def _stable_json(obj: Any) -> str:
     return json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
 
-def canonicalize_params(params: dict | None, *, set_keys: Iterable[str] = ()) -> str:
-    """Canonical JSON string for a params dict (sorted keys, canonical numbers)."""
-    canon = _canonicalize(params or {}, frozenset(set_keys))
+def canonicalize_params(
+    params: dict | None, *, set_keys: Iterable[str] = (), defaults: dict | None = None
+) -> str:
+    """Canonical JSON string for a params dict (sorted keys, canonical numbers).
+
+    Per the spec, the op MUST fill omitted params from its declared default table *for that
+    op_version* BEFORE hashing (don't drop defaults — that couples the key to the live
+    default table). Pass that table as ``defaults``; caller-supplied ``params`` override it.
+    """
+    merged = {**(defaults or {}), **(params or {})}
+    canon = _canonicalize(merged, frozenset(set_keys))
     return _stable_json(canon)
 
 
@@ -84,17 +93,27 @@ def memo_key(
     *,
     env_fingerprint: str = "",
     set_keys: Iterable[str] = (),
+    defaults: dict | None = None,
 ) -> str:
-    """Compute the pipeline memo key. ``input_hashes`` order is normalized (sorted)."""
+    """Compute the pipeline memo key. ``input_hashes`` order is normalized (sorted).
+
+    The variable-length input-hash list is **length-framed** (count + per-hash length
+    prefix), NOT delimiter-joined — a bare ``\\x00`` separator would let ``['x', 'y']`` and
+    ``['x\\x00y']`` collide into one key (a stale-cache-serving hazard).
+    """
     hasher = blake3()
     hasher.update(op.encode("utf-8"))
     hasher.update(_SEP)
     hasher.update(op_version.encode("utf-8"))
     hasher.update(_SEP)
-    for h in sorted(input_hashes):
-        hasher.update(h.encode("utf-8"))
-        hasher.update(_SEP)
-    hasher.update(canonicalize_params(params, set_keys=set_keys).encode("utf-8"))
+    hashes = sorted(input_hashes)
+    hasher.update(struct.pack("<I", len(hashes)))
+    for h in hashes:
+        hb = h.encode("utf-8")
+        hasher.update(struct.pack("<I", len(hb)))
+        hasher.update(hb)
+    hasher.update(_SEP)
+    hasher.update(canonicalize_params(params, set_keys=set_keys, defaults=defaults).encode("utf-8"))
     hasher.update(_SEP)
     hasher.update(env_fingerprint.encode("utf-8"))
     return "blake3:" + hasher.hexdigest()

@@ -79,3 +79,16 @@ def test_canonical_bytes_are_little_endian_float32():
     raw = hashing.canonical_pcm_bytes(samples)
     back = np.frombuffer(raw, dtype="<f4")
     assert np.allclose(back, samples)
+
+
+def test_pcm_length_must_match_channels():
+    # 5 bytes can't form whole stereo float32 frames (multiple of 8) → reject.
+    with pytest.raises(ValueError):
+        hashing.audio_hash_from_pcm(b"\x00" * 5, 48000, 2)
+
+
+def test_rejects_3d_array():
+    with pytest.raises(ValueError):
+        hashing.canonical_pcm_bytes(np.zeros((4, 2, 3), dtype=np.float32))  # via _channels guard? no
+    with pytest.raises(ValueError):
+        hashing._channels(np.zeros((4, 2, 3), dtype=np.float32))

@@ -25,11 +25,18 @@ def _matches(frame: dict, role: Optional[str], kind: Optional[str],
     return True
 
 
-def _order_key(indexed: tuple[int, dict]):
-    idx, frame = indexed
-    seq = frame.get("seq")
-    # Frames with an explicit seq order by it; others fall back to stream position.
-    return (0, seq, idx) if isinstance(seq, int) else (1, 0, idx)
+def _ordered(matches: list[tuple[int, dict]]) -> list[tuple[int, dict]]:
+    """Order matches for last-wins. Decide the ordering axis at the SET level, not per frame.
+
+    If EVERY match carries an int ``seq``, order by ``seq`` (survives reordering filters). If
+    ANY match lacks ``seq``, fall back to stream position for ALL of them — a per-frame
+    seq/no-seq partition would let a no-seq frame jump ahead of a high-seq frame and invert
+    last-wins.
+    """
+    all_seq = all(isinstance(f.get("seq"), int) for _, f in matches)
+    if all_seq:
+        return sorted(matches, key=lambda t: (t[1]["seq"], t[0]))
+    return sorted(matches, key=lambda t: t[0])
 
 
 def select(
@@ -41,8 +48,7 @@ def select(
     mode: str = "last",
 ) -> list[dict]:
     """Select frames by role/kind/predicate. ``mode`` ∈ {"last", "all", "strict"}."""
-    matches = [(i, f) for i, f in enumerate(frames) if _matches(f, role, kind, predicate)]
-    matches.sort(key=_order_key)
+    matches = _ordered([(i, f) for i, f in enumerate(frames) if _matches(f, role, kind, predicate)])
     if mode == "all":
         return [f for _, f in matches]
     if mode == "strict":

@@ -64,6 +64,18 @@ def _exec_external(name: str, args: list[str]) -> int:
             f"      Run `smpl --help` for built-ins, or install the tool that provides it.\n"
         )
         return 127
+    # Self-recursion guard: if `smpl-<name>` is actually one of OUR OWN multicall shims
+    # (e.g. a console-script declared ahead of its module, or a name that collides with our
+    # own dispatcher), execing it would loop forever. A per-name env sentinel breaks the
+    # cycle on the second entry and reports a clean "unknown command".
+    sentinel = f"_SMPL_DISPATCHED_{name.replace('-', '_').upper()}"
+    if os.environ.get(sentinel) == "1":
+        sys.stderr.write(
+            f"smpl: command {name!r} resolves to a stub with no implementation "
+            f"(would recurse); treating as unknown.\n"
+        )
+        return 127
+    os.environ[sentinel] = "1"
     # Replace this process — the external tool owns stdio from here.
     os.execv(exe, [exe, *args])
     return 127  # unreachable on success

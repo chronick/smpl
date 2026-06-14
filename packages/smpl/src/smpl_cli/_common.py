@@ -21,10 +21,21 @@ def stdin_is_pipe() -> bool:
 
 
 def read_stdin_frames() -> list[dict]:
-    """Read NDJSON frames from stdin, or [] when stdin is an interactive tty."""
+    """Read NDJSON frames from stdin, or [] when stdin is an interactive tty.
+
+    Per the spec (*Id assignment*), if two inbound frames share an id we MUST emit an
+    `id_collision` error frame; we do so eagerly on stdout so the failure is visible
+    downstream rather than silently minting ambiguous references.
+    """
     if not stdin_is_pipe():
         return []
-    return list(ndjson.read_frames())
+    frames = list(ndjson.read_frames())
+    from smplstream import error_frame
+    from smplstream.frames import find_duplicate_ids
+
+    for dup in find_duplicate_ids(frames):
+        ndjson.write_frame(error_frame("id_collision", f"two distinct inbound frames share id {dup}"))
+    return frames
 
 
 def emit(frames: Iterable[dict]) -> None:

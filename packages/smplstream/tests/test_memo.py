@@ -43,3 +43,23 @@ def test_set_params_sorted_sequence_preserved():
 def test_canonical_number_forms():
     assert memo.canonicalize_params({"x": 6.0}) == memo.canonicalize_params({"x": 6})
     assert memo.canonicalize_params({"x": 6.5}) != memo.canonicalize_params({"x": 6})
+
+
+def test_input_hash_list_is_length_framed_no_separator_collision():
+    # ['x','y'] and ['x\x00y'] must NOT collide (the bare-separator hazard).
+    a = memo.memo_key("op", "v1", ["x", "y"], {})
+    b = memo.memo_key("op", "v1", ["x\x00y"], {})
+    assert a != b
+    # Different cardinalities never collide either.
+    assert memo.memo_key("op", "v1", ["xy"], {}) != memo.memo_key("op", "v1", ["x", "y"], {})
+
+
+def test_defaults_filled_before_hashing():
+    # Omitting a param == passing its default explicitly (spec MUST: don't drop defaults).
+    defaults = {"quality": "high", "seed": 0}
+    with_default = memo.memo_key("gen", "g@1", [], {"seed": 0}, defaults=defaults)
+    explicit = memo.memo_key("gen", "g@1", [], {"seed": 0, "quality": "high"}, defaults=defaults)
+    assert with_default == explicit
+    # A caller override beats the default.
+    overridden = memo.memo_key("gen", "g@1", [], {"quality": "low"}, defaults=defaults)
+    assert overridden != with_default
