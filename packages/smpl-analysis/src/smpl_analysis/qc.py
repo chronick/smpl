@@ -4,10 +4,10 @@ The "is this sample technically clean and usable" axis — the deterministic DSP
 curators and engineers reject for. Pure functions over a resolved audio path / np array
 returning smplstream frame dicts:
 
-  1. clipping / true-peak     → clipping pass/fail, keyed off an ITU-R BS.1770 true-peak
-                                 (we MAY compute true-peak; the `loudness.true_peak_dbtp`
-                                 KEY is owned by the loudness tier, so we don't emit it —
-                                 we report a `qc.clipping.*` flag + true-peak for context)
+  1. clipping / true-peak     → `qc.clipping.detected` pass/fail, keyed off an ITU-R BS.1770
+                                 true-peak we compute internally; the `loudness.true_peak_dbtp`
+                                 dBTP *measurement* is owned by the loudness tier, so we do NOT
+                                 re-emit it under a qc.* key (one measurement, one owner)
   2. phase correlation        → `qc.phase.correlation` (−1..1, stereo mono-compatibility)
   3. DC offset                → `qc.dc_offset_dbfs`
   4. noise floor / SNR        → `qc.snr_db`
@@ -301,7 +301,7 @@ def qc_audio_frame(audio_frame: dict, *, want_markers: bool = True) -> list[dict
     """Run the deterministic QC top-6 over one `audio` frame; return derived frames.
 
     Emits ONE `feature` frame carrying all the QC scalars (registry `qc.*` keys plus
-    `qc.clipping.*` and a context true-peak), plus `marker` frames for click/gap locations.
+    `qc.clipping.detected`), plus `marker` frames for click/gap locations.
     Lineage (`of`/`op`/`op_version`/`params`) is set on every derived frame.
     """
     from smplstream import cas, frames as F
@@ -318,10 +318,11 @@ def qc_audio_frame(audio_frame: dict, *, want_markers: bool = True) -> list[dict
     lossy = lossy_origin(samples, sr)
 
     feat: dict[str, Any] = {
-        # clipping pass/fail keyed off true-peak; true-peak reported for context only
-        # (the `loudness.true_peak_dbtp` KEY is owned by the loudness tier — not emitted here)
+        # Clipping pass/fail ONLY. true-peak is computed internally to decide it, but the
+        # dBTP *measurement* is owned solely by the loudness tier (`loudness.true_peak_dbtp`)
+        # — "one measurement, one owner" (feature-keys.md). qc does NOT re-emit it under a
+        # qc.* key; run `smpl loudness` for the dBTP number.
         "qc.clipping.detected": clipping,
-        "qc.clipping.true_peak_dbtp": round(tp, 2) if tp != float("-inf") else None,
         "qc.dc_offset_dbfs": round(dc, 2) if dc != float("-inf") else None,
         "qc.snr_db": snr,
         **lossy,
