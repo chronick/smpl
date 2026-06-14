@@ -26,12 +26,17 @@ echo "== smpl e2e =="
 echo "repo=$REPO work=$WORK"
 
 # --- 1. clean install from the git repo --------------------------------------------
-echo "[1] clean install (uv tool install $REPO) ..."
-if uv tool install "$REPO/packages/smplstream" >/dev/null 2>&1 \
-   && uv tool install --with "$REPO/packages/smplstream" --with "$REPO/packages/smpl-analysis" "$REPO/packages/smpl" >/dev/null 2>&1; then
+# Install the `smpl` CLI in one shot; its unpublished sibling packages (smplstream,
+# smpl-analysis) are supplied as local `--with` sources — the same shape as the README's
+# git install, just local. (smplstream has no console scripts, so it is NOT installed
+# standalone — `uv tool install` would reject it for having no executables.)
+echo "[1] clean install (uv tool install $REPO/packages/smpl + siblings) ..."
+if uv tool install "$REPO/packages/smpl" \
+     --with "$REPO/packages/smplstream" \
+     --with "$REPO/packages/smpl-analysis" >"$WORK/install.log" 2>&1; then
   command -v smpl >/dev/null && ok "smpl installed: $(command -v smpl)" || bad "smpl not on PATH"
 else
-  bad "uv tool install failed"; echo "FAIL=$FAIL"; exit 1
+  bad "uv tool install failed"; tail -5 "$WORK/install.log"; echo "FAIL=$FAIL"; exit 1
 fi
 
 # --- 2. two-tier heavy generator into its own venv ---------------------------------
@@ -49,7 +54,9 @@ if [ -z "$SAMPLES" ]; then
   "$(command -v python3)" "$REPO/tests/e2e/make_fixtures.py" "$SAMPLES" 2>/dev/null \
     || smpl --help >/dev/null  # fixtures need numpy/soundfile; fall back below if absent
 fi
-mapfile -t WAVS < <(find "$SAMPLES" -maxdepth 2 -iname '*.wav' 2>/dev/null | head -8)
+# bash 3.2 (macOS default) has no `mapfile` — read into the array portably.
+WAVS=()
+while IFS= read -r _f; do WAVS+=("$_f"); done < <(find "$SAMPLES" -maxdepth 2 -iname '*.wav' 2>/dev/null | head -8)
 echo "[*] ${#WAVS[@]} sample(s) from $SAMPLES"
 [ "${#WAVS[@]}" -gt 0 ] || { bad "no samples to test"; echo "FAIL=$FAIL"; exit 1; }
 S0="${WAVS[0]}"
