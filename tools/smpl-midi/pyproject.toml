@@ -1,0 +1,39 @@
+[project]
+name = "smpl-midi"
+version = "0.1.0"
+description = "smpl transcribe-midi / smpl render-midi — offline MIDI tools (audio→MIDI via basic-pitch, MIDI→audio via fluidsynth/SC NRT). kind:midi frames. Heavy deps isolated in this tool's OWN venv; the default install is light and degrades to a clean `unsupported` error frame without them."
+requires-python = ">=3.10"
+dependencies = [
+    "smplstream",
+    "numpy>=1.24",
+    "soundfile>=0.12",
+]
+
+# Two-tier proof: this tool is installed via its OWN `uv tool install ./tools/smpl-midi`
+# into an isolated venv (NOT the core workspace), and discovered on PATH as the two verb
+# shims below, reachable through `smpl transcribe-midi` / `smpl render-midi`. The heavy MIDI
+# deps (basic-pitch for audio→MIDI, fluidsynth for MIDI→audio) add HERE without ever touching
+# the core lockfile. ONE PATH name surfaces TWO verbs: both shims point at the same multicall
+# `main`, which dispatches on argv[0] basename (`smpl-transcribe-midi` vs `smpl-render-midi`),
+# exactly how the core `smpl` dispatcher resolves an external subcommand.
+[project.scripts]
+smpl-transcribe-midi = "smpl_midi.cli:main"
+smpl-render-midi = "smpl_midi.cli:main"
+
+[project.optional-dependencies]
+# Real audio→MIDI transcription lives behind an extra so the default install stays light.
+# (basic-pitch pulls in tensorflow/coremltools — multi-GB; never imported at module top.)
+# MIDI→audio rendering uses the `fluidsynth` BINARY (shelled out, not a pip dep) + a
+# SoundFont managed under SMPL_MIDI_HOME; install via your OS package manager, not pip.
+transcribe = ["basic-pitch>=0.3", "pretty_midi>=0.2", "mido>=1.3"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/smpl_midi"]
+
+# Resolve the unpublished core package from the monorepo for the isolated install.
+[tool.uv.sources]
+smplstream = { path = "../../packages/smplstream", editable = true }

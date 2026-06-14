@@ -1,0 +1,37 @@
+[project]
+name = "smpl-cloud"
+version = "0.1.0"
+description = "smpl cloud — generate audio via provider APIs (Stable Audio / ElevenLabs / …), a smplstream source tool. Default install is LIGHT: no provider SDK, no torch. Provider SDKs are isolated behind per-provider extras; without a key OR the SDK the tool emits a clean `unsupported` error frame + a stderr install/auth hint."
+requires-python = ">=3.10"
+dependencies = [
+    "smplstream",
+    "numpy>=1.24",
+    "soundfile>=0.12",
+]
+
+# Two-tier proof: this tool is installed via its OWN `uv tool install ./tools/smpl-cloud`
+# into an isolated venv (NOT the core workspace), and discovered on PATH as `smpl-cloud`,
+# reachable through `smpl cloud`. Provider SDKs add HERE behind extras without ever touching
+# the core lockfile. `smpl cloud auth …` manages keys; env vars always override the config.
+[project.scripts]
+smpl-cloud = "smpl_cloud.cli:main"
+
+[project.optional-dependencies]
+# Real provider SDKs live behind extras so the default install stays light. Each provider's
+# network client is lazy-imported inside run(); a missing SDK degrades to an `unsupported`
+# frame, never an import error at module top.
+stableaudio = ["stable-audio-tools>=0.0.16"]
+elevenlabs = ["elevenlabs>=1.0"]
+# Convenience aggregate for installing every supported provider SDK at once.
+all = ["stable-audio-tools>=0.0.16", "elevenlabs>=1.0"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/smpl_cloud"]
+
+# Resolve the unpublished core package from the monorepo for the isolated install.
+[tool.uv.sources]
+smplstream = { path = "../../packages/smplstream", editable = true }

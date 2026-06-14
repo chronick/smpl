@@ -1,0 +1,34 @@
+[project]
+name = "smpl-synth"
+version = "0.1.0"
+description = "smpl synth — SuperCollider NRT bridge (source + effect). Shells out to sclang/scsynth in NON-realtime mode to render a SynthDef offline. The 'heavy dep' is the SuperCollider BINARY (not a pip dep); the default install is light and degrades to an `unsupported` error frame + `brew install supercollider` hint when sclang is absent."
+requires-python = ">=3.10"
+dependencies = [
+    "smplstream",
+    "numpy>=1.24",
+    "soundfile>=0.12",
+]
+
+# Two-tier proof: this tool installs via its OWN `uv tool install ./tools/smpl-synth` into an
+# isolated venv (NOT the core workspace), discovered on PATH as `smpl-synth`, reachable through
+# `smpl synth`. Glue is PATH discovery only — no cross-tool dependency solving.
+[project.scripts]
+smpl-synth = "smpl_synth.cli:main"
+
+[project.optional-dependencies]
+# SuperCollider is a SYSTEM BINARY (sclang/scsynth), not a Python package — it is installed via
+# `brew install supercollider`, not pip. This empty extra exists for parity with the other heavy
+# tools and as a documented home should an optional Python helper ever be needed; the real
+# heavy dependency is gated at runtime by PATH discovery (see backends.sc_available()).
+sc = []
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/smpl_synth"]
+
+# Resolve the unpublished core package from the monorepo for the isolated install.
+[tool.uv.sources]
+smplstream = { path = "../../packages/smplstream", editable = true }
