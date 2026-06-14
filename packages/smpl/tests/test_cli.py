@@ -108,12 +108,19 @@ def test_help_lists_builtins(env):
     assert b"read" in r.stdout and b"as-wav" in r.stdout and b"external commands" in r.stdout
 
 
-def test_unimplemented_subcommand_does_not_exec_loop(env):
-    # `smpl filter` has no module and no shim → clean 127, NOT an infinite exec spin.
-    # The 60s subprocess timeout would trip on a loop; reaching the assert proves no spin.
-    r = _run(["smpl", "filter", "--hp", "200"], env)
+def test_external_discovery_does_not_exec_loop(env, tmp_path):
+    # A `smpl-<x>` shim that re-invokes `smpl <x>` would spin forever without the guard.
+    # Plant exactly such a recursive shim and assert the env-sentinel breaks the loop (127),
+    # not a 60s timeout. This is the regression test for the exec-loop blocker.
+    smpl = shutil.which("smpl")
+    shim = tmp_path / "smpl-loopy"
+    shim.write_text(f'#!/bin/sh\nexec "{smpl}" loopy "$@"\n')
+    shim.chmod(0o755)
+    e = dict(env)
+    e["PATH"] = f"{tmp_path}:{e['PATH']}"
+    r = _run(["smpl", "loopy"], e)  # not built-in → execs smpl-loopy → re-enters → guard
     assert r.returncode == 127
-    assert b"unknown command" in r.stderr or b"recurse" in r.stderr
+    assert b"recurse" in r.stderr or b"unknown" in r.stderr
 
 
 def test_id_collision_emits_error_frame(env, tone):
