@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install system audio tools
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg sox libsndfile1
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+      - name: Sync workspace
+        run: uv sync
+      - name: Run the test suite
+        run: uv run pytest packages -q
+      - name: Conformance — golden-hash corpus
+        run: uv run pytest packages/smplstream/tests/test_conformance.py -q
+
+  native:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+      - name: Build the pyo3 extension
+        working-directory: rust/smpl-native
+        run: uv run --with maturin maturin build --release
+      - name: Import the native module
+        working-directory: rust/smpl-native
+        run: |
+          WHEEL=$(ls -t target/wheels/*.whl | head -1)
+          uv run --with "$WHEEL" python -c "import smpl_native; assert smpl_native.peak([0.5,-0.9]) == 0.9"

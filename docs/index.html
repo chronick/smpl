@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>smpl — composable, content-addressed audio analysis you pipe like jq</title>
+<meta name="description" content="A pipe-based audio-analysis toolchain. Self-describing NDJSON frames over a content-addressed store, with canonical-PCM hashing and free pipeline memoization. Built for LLMs and humans." />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<header class="hero">
+  <div class="wrap">
+    <h1>smpl</h1>
+    <p class="tag">A composable, content-addressed audio-analysis toolchain you pipe like <code>jq</code>.</p>
+    <p class="sub">Pipe self-describing <strong>frames</strong> that reference content-addressed bytes —
+      never the heavy bytes themselves. That one choice buys multi-payload streams, free
+      pipeline-wide memoization, and lazy evaluation.</p>
+    <pre class="hero-pipe"><span class="c">$</span> smpl read kick.wav <span class="p">|</span> smpl stems <span class="p">|</span> smpl select <span class="f">--role</span> stem:drums <span class="bs">\</span>
+    <span class="p">|</span> smpl filter <span class="f">--hp</span> 200 <span class="p">|</span> smpl env <span class="f">--pluck</span> <span class="p">|</span> smpl describe <span class="p">|</span> smpl view</pre>
+    <p class="caption">Isolate <em>one subcomponent</em> of a sample and get back a rich multimodal
+      report — text tables <strong>+ annotated spectrograms + features + embeddings</strong> — for
+      exactly that piece, not the whole file.</p>
+    <div class="cta">
+      <a class="btn" href="https://github.com/chronick/smpl">GitHub</a>
+      <a class="btn ghost" href="https://github.com/chronick/smpl/blob/main/spec.md">The protocol</a>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <section class="visual">
+    <h2>See a subcomponent, not the file</h2>
+    <div class="vrow">
+      <figure>
+        <img src="assets/waveform.png" alt="input waveform" loading="lazy" />
+        <figcaption>input — a kick sample (waveform)</figcaption>
+      </figure>
+      <div class="arrow">→</div>
+      <figure>
+        <img src="assets/spectrogram.png" alt="annotated mel spectrogram of the isolated drum bus" loading="lazy" />
+        <figcaption>output — annotated mel spectrogram of the isolated drum bus</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section class="split">
+    <div>
+      <h3>For LLMs</h3>
+      <p><code>smpl view</code> emits a multimodal report for whatever you isolated: feature tables
+        with units, <code>marker</code> tracks tied to musical time, and <strong>actual spectrogram
+        images</strong> a model can open and describe. The deterministic tier measures; the model
+        interprets. <em>If it doesn't need reasoning, it shouldn't call a model.</em></p>
+      <pre><span class="c">$</span> smpl read x.wav <span class="p">|</span> smpl qc <span class="p">|</span> smpl spectrogram <span class="p">|</span> smpl view
+<span class="o"># a lossy origin shows as a brickwall low-pass in the spectrogram</span></pre>
+    </div>
+    <div>
+      <h3>For humans</h3>
+      <p>Every seam is a boring Unix citizen. NDJSON on the wire, so <code>jq</code> works. Real file
+        paths for heavy bytes, so <code>sox</code> and <code>ffmpeg</code> work. Content-addressed and
+        memoized, so re-running a pipe is nearly free.</p>
+      <pre><span class="c">$</span> smpl read master.wav <span class="p">|</span> smpl loudness <span class="bs">\</span>
+    <span class="p">|</span> jq <span class="s">'select(.kind=="feature").data'</span></pre>
+    </div>
+  </section>
+
+  <section>
+    <h2>The frame</h2>
+    <p>One frame per line of UTF-8 NDJSON. Self-describing; payload by <code>hash</code> (in the CAS)
+      or inline <code>data</code>.</p>
+    <pre class="frame">{<span class="k">"v"</span>:1, <span class="k">"kind"</span>:<span class="s">"audio"</span>, <span class="k">"id"</span>:<span class="s">"blake3:9af2…"</span>, <span class="k">"role"</span>:<span class="s">"stem:drums"</span>,
+ <span class="k">"of"</span>:<span class="s">"blake3:1c0a…"</span>, <span class="k">"op"</span>:<span class="s">"demucs"</span>, <span class="k">"hash"</span>:<span class="s">"blake3:c3d4…"</span>,
+ <span class="k">"media"</span>:<span class="s">"audio/wav"</span>, <span class="k">"meta"</span>:{<span class="k">"sr"</span>:48000, <span class="k">"dur"</span>:8.0, <span class="k">"ch"</span>:2}}</pre>
+    <p>Kinds: <code>audio · image · text · vector · marker · feature · midi · error</code>. The full
+      normative contract — canonical-PCM hashing, the memo key, CAS integrity, units & timebase —
+      is in <a href="https://github.com/chronick/smpl/blob/main/spec.md">spec.md</a>, versioned like an API.</p>
+  </section>
+
+  <section>
+    <h2>The raw-WAV bridge</h2>
+    <p>Drop to raw WAV to reach any Unix DSP tool mid-pipe, without losing lineage or cache:</p>
+    <pre><span class="c">$</span> smpl read x.wav <span class="p">|</span> smpl as-wav <span class="p">|</span> sox - -t wav - reverb 50 <span class="bs">\</span>
+    <span class="p">|</span> smpl from-wav <span class="f">--role</span> x.wet <span class="f">--derives-from</span> source <span class="p">|</span> smpl describe</pre>
+  </section>
+
+  <section>
+    <h2>Install</h2>
+    <pre><span class="o"># light core — one isolated install</span>
+<span class="c">$</span> uv tool install git+https://github.com/chronick/smpl<span class="o">#subdirectory=packages/smpl</span> <span class="bs">\</span>
+    <span class="f">--with</span> git+https://github.com/chronick/smpl<span class="o">#subdirectory=packages/smplstream</span> <span class="bs">\</span>
+    <span class="f">--with</span> git+https://github.com/chronick/smpl<span class="o">#subdirectory=packages/smpl-analysis</span>
+
+<span class="o"># heavy generators install into their OWN venvs (two-tier — torch never touches the core)</span>
+<span class="c">$</span> uv tool install git+https://github.com/chronick/smpl<span class="o">#subdirectory=tools/smpl-gen</span></pre>
+  </section>
+
+  <section>
+    <h2>The tools</h2>
+    <div class="grid" id="tools-grid">
+      <div><code>read</code> / <code>write</code><span>ingest → frames; materialize a frame → file</span></div>
+      <div><code>resolve</code> / <code>gc</code><span>hash/id/role → CAS path; collect unreferenced blobs</span></div>
+      <div><code>as-wav</code> / <code>from-wav</code><span>the lineage-preserving sox/ffmpeg bridge</span></div>
+      <div><code>cat</code> / <code>describe</code><span>describe-as-filter: features + caption + image</span></div>
+      <div><code>loudness</code><span>integrated LUFS, true-peak dBTP, short-term LUFS</span></div>
+      <div><code>spectral</code><span>flatness / crest / spread / rolloff / contrast / slope</span></div>
+      <div><code>qc</code><span>clipping, phase/mono, DC, SNR, clicks, lossy-origin</span></div>
+      <div><code>spectrogram</code><span>annotated mel / CQT / HPSS + waveform (PNG)</span></div>
+      <div><code>convert</code><span>format / sample-rate / bit-depth (new frame, own hash)</span></div>
+      <div><code>filter eq env fx slice select</code><span>edit filters + stream selection</span></div>
+      <div><code>view</code><span>the multimodal LLM / human report</span></div>
+      <div><code>gen cloud transcribe stems embed synth</code><span>PATH-discovered heavy tools (own venvs)</span></div>
+    </div>
+  </section>
+
+  <footer>
+    <p>MIT · <a href="https://github.com/chronick/smpl">github.com/chronick/smpl</a> ·
+      built around a content-addressed frame protocol</p>
+  </footer>
+</main>
+</body>
+</html>
