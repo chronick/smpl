@@ -175,6 +175,78 @@ def test_fx_reverb_changes_signal_and_fingerprints(tmp_path, monkeypatch):
     assert wet["params"].get("env_fingerprint")
 
 
+# --- gain / normalize / limit (level management) ---------------------------------------
+
+
+def _true_peak_dbtp(samples, sr):
+    """4x-oversampled true peak of a (frames, ch) array, in dBTP (mirrors loudness tier)."""
+    from scipy.signal import resample_poly
+
+    peak = 0.0
+    for c in range(samples.shape[1]):
+        up = np.abs(resample_poly(samples[:, c], 4, 1))
+        if up.size:
+            peak = max(peak, float(up.max()))
+    return 20.0 * np.log10(peak) if peak > 0 else float("-inf")
+
+
+def test_gain_scales_amplitude_without_clipping(tmp_path, monkeypatch):
+    monkeypatch.setenv("SMPL_CAS_DIR", str(tmp_path / "cas"))
+    src = _put_wav(_tone(amp=0.8), SR)
+    wet = edit.apply_gain(src, db=6.0)
+    _assert_wet_lineage(wet, src, "gain", edit.GAIN_OP_VERSION)
+    assert wet["params"]["db"] == 6.0
+    before, sr = _load_frame_samples(src)
+    after, _ = _load_frame_samples(wet)
+    ratio = float(np.max(np.abs(after)) / np.max(np.abs(before)))
+    assert abs(ratio - 10 ** (6.0 / 20.0)) < 0.02  # ~1.995x
+    # +6 dB on a 0.8-peak tone reaches ~1.6 and is intentionally NOT clipped (float-safe)
+    assert np.max(np.abs(after)) > 1.0
+
+
+def test_normalize_hits_target_lufs(tmp_path, monkeypatch):
+    monkeypatch.setenv("SMPL_CAS_DIR", str(tmp_path / "cas"))
+    from smpl_analysis import loudness
+
+    src = _put_wav(_tone(amp=0.2, dur=3.0), SR)  # quiet → needs a boost; no ceiling clash
+    wet = edit.apply_normalize(src, target_lufs=-16.0, ceiling_dbtp=-1.0)
+    _assert_wet_lineage(wet, src, "normalize", edit.NORMALIZE_OP_VERSION)
+    after, sr = _load_frame_samples(wet)
+    res = loudness.analyze_array(after, sr)
+    assert abs(res["integrated_lufs"] - (-16.0)) < 0.5  # landed on target
+    assert not wet["params"]["ceiling_applied"]
+
+
+def test_normalize_self_limits_to_ceiling(tmp_path, monkeypatch):
+    monkeypatch.setenv("SMPL_CAS_DIR", str(tmp_path / "cas"))
+    # a hot tone normalized UP to a loud target would breach the ceiling → gain pulled back
+    src = _put_wav(_tone(amp=0.9, dur=3.0), SR)
+    wet = edit.apply_normalize(src, target_lufs=0.0, ceiling_dbtp=-1.0)
+    assert wet["params"]["ceiling_applied"] is True
+    after, sr = _load_frame_samples(wet)
+    assert _true_peak_dbtp(after, sr) <= -1.0 + 0.1  # ceiling honored
+
+
+def test_limit_brings_true_peak_to_ceiling(tmp_path, monkeypatch):
+    monkeypatch.setenv("SMPL_CAS_DIR", str(tmp_path / "cas"))
+    src = _put_wav(_tone(amp=0.99, dur=1.0), SR)  # ~0 dBFS → over a -1 dBTP ceiling
+    wet = edit.apply_limit(src, ceiling_dbtp=-1.0)
+    _assert_wet_lineage(wet, src, "limit", edit.LIMIT_OP_VERSION)
+    after, sr = _load_frame_samples(wet)
+    assert _true_peak_dbtp(after, sr) <= -1.0 + 0.1
+    assert wet["params"]["applied_gain_db"] < 0  # was reduced
+
+
+def test_limit_passes_quiet_signal_through(tmp_path, monkeypatch):
+    monkeypatch.setenv("SMPL_CAS_DIR", str(tmp_path / "cas"))
+    src = _put_wav(_tone(amp=0.1, dur=1.0), SR)  # well below ceiling
+    wet = edit.apply_limit(src, ceiling_dbtp=-1.0)
+    assert wet["params"]["applied_gain_db"] == 0.0
+    before, _ = _load_frame_samples(src)
+    after, _ = _load_frame_samples(wet)
+    assert np.allclose(before, after, atol=1e-6)  # untouched
+
+
 # --- slice -----------------------------------------------------------------------------
 
 

@@ -22,6 +22,7 @@ sox/ffmpeg are on PATH.
 from __future__ import annotations
 
 import io
+import math
 import subprocess
 from typing import Optional
 
@@ -33,6 +34,9 @@ EQ_OP_VERSION = "eq@1"
 ENV_OP_VERSION = "env@1"
 FX_OP_VERSION = "fx@1"
 SLICE_OP_VERSION = "slice@1"
+GAIN_OP_VERSION = "gain@1"
+NORMALIZE_OP_VERSION = "normalize@1"
+LIMIT_OP_VERSION = "limit@1"
 
 
 # ---------------------------------------------------------------------------
@@ -338,6 +342,139 @@ def apply_fx(
         op_version=FX_OP_VERSION,
         params=params,
         fmt=meta.get("fmt"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# gain / normalize / limit — level management (ticket vault-3l83 follow-up).
+#
+# The level-management trio. All deterministic numpy (empty env-fingerprint), all emit a
+# wet ``<role>.wet`` audio frame carrying the measured-before / applied-gain in ``params`` so
+# the level decision is auditable from the lineage. They compose like every other op — the
+# canonical leveling chain is ``read | normalize --lufs -14 | limit | write``:
+#
+#   - ``gain``      — the primitive: a pure dB scale, NO clipping (float-safe, composable;
+#                     pair with ``limit`` for a ceiling). The single-knob building block.
+#   - ``normalize`` — LUFS-normalize to a target (BS.1770 integrated), WITH a true-peak
+#                     ceiling so it is safe standalone AND composes. Trades exact-LUFS for
+#                     no-clipping when the target would breach the ceiling.
+#   - ``limit``     — a true-peak ceiling by whole-sample gain reduction (never boosts). Not
+#                     a look-ahead compressor: transparent, no pumping, preserves dynamics —
+#                     the right primitive for one-shot / sample prep.
+# ---------------------------------------------------------------------------
+def apply_gain(audio_frame: dict, *, db: float) -> dict:
+    """Scale the selected audio frame by ``db`` decibels, returning a wet `audio` frame.
+
+    A pure level change — deliberately **not** clipped, so it is lossless and composes (a
+    boost that exceeds 0 dBFS survives in the float CAS blob; follow with ``limit`` for a
+    delivery ceiling). The single-knob primitive ``normalize`` is built on.
+    """
+    import numpy as np
+
+    data, sr = _load_audio(audio_frame)
+    factor = 10.0 ** (float(db) / 20.0)
+    out = (data.astype("float64") * factor).astype("float32")
+    params = {"db": float(db), "sr_hz": sr}
+    return _emit_wet_audio(
+        out, sr, src_frame=audio_frame, op="gain", op_version=GAIN_OP_VERSION, params=params
+    )
+
+
+def apply_normalize(
+    audio_frame: dict,
+    *,
+    target_lufs: float,
+    ceiling_dbtp: Optional[float] = -1.0,
+) -> dict:
+    """Loudness-normalize to ``target_lufs`` (BS.1770 integrated), returning a wet frame.
+
+    Computes the gain that moves measured integrated LUFS to ``target_lufs``. If applying
+    that gain would push the true peak above ``ceiling_dbtp`` (default −1 dBTP), the gain is
+    pulled back so the true peak lands exactly at the ceiling — i.e. the op self-limits,
+    trading a little loudness for no inter-sample clipping. Pass ``ceiling_dbtp=None`` to
+    normalize to exact LUFS with no ceiling (then chain ``limit`` yourself). Silent / too-
+    short signals pass through ungained with a ``note`` in params.
+
+    The measured-in loudness, true peak, and applied gain are recorded in ``params`` so the
+    level decision is fully auditable from the frame lineage.
+    """
+    import numpy as np
+
+    from . import loudness
+
+    data, sr = _load_audio(audio_frame)
+    res = loudness.analyze_array(data, sr)
+    measured_lufs = res["integrated_lufs"]
+    measured_tp = res["true_peak_dbtp"]
+
+    note = None
+    if measured_lufs is None or not math.isfinite(measured_lufs):
+        gain_db = 0.0
+        note = "silent_or_too_short: passed through ungained"
+    else:
+        gain_db = float(target_lufs) - float(measured_lufs)
+
+    ceiling_applied = False
+    if (
+        ceiling_dbtp is not None
+        and measured_tp is not None
+        and math.isfinite(measured_tp)
+    ):
+        projected_tp = measured_tp + gain_db
+        if projected_tp > ceiling_dbtp:
+            gain_db -= projected_tp - ceiling_dbtp
+            ceiling_applied = True
+
+    factor = 10.0 ** (gain_db / 20.0)
+    out = (data.astype("float64") * factor).astype("float32")
+    params = {
+        "target_lufs": float(target_lufs),
+        "ceiling_dbtp": ceiling_dbtp,
+        "measured_lufs_in": loudness._db_round(measured_lufs),
+        "measured_true_peak_dbtp_in": loudness._db_round(measured_tp),
+        "applied_gain_db": round(float(gain_db), 3),
+        "ceiling_applied": ceiling_applied,
+        "sr_hz": sr,
+    }
+    if note:
+        params["note"] = note
+    return _emit_wet_audio(
+        out, sr, src_frame=audio_frame, op="normalize",
+        op_version=NORMALIZE_OP_VERSION, params=params,
+    )
+
+
+def apply_limit(audio_frame: dict, *, ceiling_dbtp: float = -1.0) -> dict:
+    """Guarantee true peak ≤ ``ceiling_dbtp`` by whole-sample gain reduction (never boosts).
+
+    Measures the 4×-oversampled true peak and, if it exceeds the ceiling, scales the entire
+    sample down so the worst inter-sample peak sits exactly at the ceiling. A transparent,
+    deterministic ceiling — not a look-ahead compressor — so it never pumps and preserves
+    the sample's dynamics. Below-ceiling input passes through unchanged (gain 0). The right
+    safety stage for one-shots and for the tail of a normalize chain.
+    """
+    import numpy as np
+
+    from . import loudness
+
+    data, sr = _load_audio(audio_frame)
+    res = loudness.analyze_array(data, sr)
+    measured_tp = res["true_peak_dbtp"]
+
+    gain_db = 0.0
+    if measured_tp is not None and math.isfinite(measured_tp) and measured_tp > ceiling_dbtp:
+        gain_db = float(ceiling_dbtp) - float(measured_tp)  # always ≤ 0
+
+    factor = 10.0 ** (gain_db / 20.0)
+    out = (data.astype("float64") * factor).astype("float32")
+    params = {
+        "ceiling_dbtp": float(ceiling_dbtp),
+        "measured_true_peak_dbtp_in": loudness._db_round(measured_tp),
+        "applied_gain_db": round(float(gain_db), 3),
+        "sr_hz": sr,
+    }
+    return _emit_wet_audio(
+        out, sr, src_frame=audio_frame, op="limit", op_version=LIMIT_OP_VERSION, params=params
     )
 
 

@@ -80,6 +80,9 @@ smpl read pad.wav | smpl describe | smpl view
 # Loudness / mastering read
 smpl read master.wav | smpl loudness | jq 'select(.kind=="feature").data'
 
+# Level to a LUFS target with a -1 dBTP true-peak ceiling (kit / master prep)
+smpl read hot.wav | smpl normalize --lufs -14 | smpl write leveled.wav
+
 # Technical QC + forensics (a lossy origin shows as a brickwall low-pass)
 smpl read suspect.wav | smpl qc | smpl spectrogram | smpl view
 
@@ -115,6 +118,7 @@ composes the pipe, resolves only what's needed, and reads back the report.
 | `qc` | clipping, phase/mono, DC, SNR, clicks/gaps, lossy-origin cutoff |
 | `spectrogram` | annotated mel / CQT / HPSS spectrograms + waveform (PNG) |
 | `convert` | format / sample-rate / bit-depth conversion (new frame, own hash) |
+| `gain` `normalize` `limit` | level management: dB gain (pure), LUFS-normalize (+ true-peak ceiling), true-peak limit |
 | `filter` `eq` `env` `fx` `slice` `select` | the edit filters + stream selection |
 | `view` | the multimodal LLM/human report |
 | `gen` · `cloud` · `transcribe` · `stems` · `embed` · `synth` | PATH-discovered heavy tools (own venvs) |
