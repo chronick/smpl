@@ -124,7 +124,7 @@ composes the pipe, resolves only what's needed, and reads back the report.
 One `uv` workspace holds the light core; heavy generators are separate `uv tool install`'d
 projects discovered on PATH (`smpl gen` execs `smpl-gen`) — so torch never touches the core
 lockfile and cold pipe stages stay fast. Optional Rust DSP rides in via pyo3/maturin only
-where profiling earns it. See [`plan.md`](plan.md).
+where profiling earns it.
 
 ## Development
 
