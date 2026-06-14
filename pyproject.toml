@@ -1,0 +1,40 @@
+# smpl — composable, content-addressed audio-analysis toolchain (uv workspace root).
+#
+# This is the LIGHT core tier (smplstream + smpl-analysis + smpl): one lockfile,
+# one venv, compatible light deps, installed as a single `uv tool install .`.
+# Heavy generators (smpl-gen / smpl-cloud / smpl-transcribe / ...) are NOT members
+# here — they live under tools/ as independent uv projects, each `uv tool install`'d
+# into its own isolated venv and discovered on PATH. See plan.md → Dependency isolation.
+[project]
+name = "smpl-workspace"
+version = "0.1.0"
+description = "smplstream: a composable, content-addressed, pipe-based audio-analysis toolchain"
+requires-python = ">=3.10"
+# The workspace root is a non-package aggregator; real deliverables are the members.
+dependencies = [
+    "smplstream",
+    "smpl-analysis",
+    "smpl",
+]
+
+[tool.uv.workspace]
+members = ["packages/*"]
+
+[tool.uv.sources]
+smplstream = { workspace = true }
+smpl-analysis = { workspace = true }
+smpl = { workspace = true }
+
+[tool.uv]
+# The root is just an aggregator; don't try to build/install it as a wheel.
+package = false
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["packages/smplstream/tests", "packages/smpl-analysis/tests", "packages/smpl/tests"]
+addopts = "-q"

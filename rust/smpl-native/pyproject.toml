@@ -1,0 +1,14 @@
+[build-system]
+requires = ["maturin>=1.5,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "smpl-native"
+version = "0.1.0"
+description = "Optional pyo3 DSP extensions for the smpl toolchain."
+requires-python = ">=3.10"
+classifiers = ["Programming Language :: Rust"]
+
+[tool.maturin]
+module-name = "smpl_native"
+manifest-path = "Cargo.toml"

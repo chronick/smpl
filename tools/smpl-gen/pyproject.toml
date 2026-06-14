@@ -1,0 +1,32 @@
+[project]
+name = "smpl-gen"
+version = "0.1.0"
+description = "smpl gen — local audio generation backends (source tool). Heavy ML backends isolated in their OWN venv; ships a dependency-free synthetic backend so the two-tier model and source-frame contract work out of the box."
+requires-python = ">=3.10"
+dependencies = [
+    "smplstream",
+    "numpy>=1.24",
+    "soundfile>=0.12",
+]
+
+# Two-tier proof: this tool is installed via its OWN `uv tool install ./tools/smpl-gen`
+# into an isolated venv (NOT the core workspace), and discovered on PATH as `smpl-gen`,
+# reachable through `smpl gen`. Heavy backends (musicgen/audiogen/stable-audio) add torch
+# HERE without ever touching the core lockfile.
+[project.scripts]
+smpl-gen = "smpl_gen.cli:main"
+
+[project.optional-dependencies]
+# Real ML backends live behind an extra so the default install stays light.
+torch = ["torch>=2.2", "audiocraft>=1.3"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/smpl_gen"]
+
+# Resolve the unpublished core package from the monorepo for the isolated install.
+[tool.uv.sources]
+smplstream = { path = "../../packages/smplstream", editable = true }

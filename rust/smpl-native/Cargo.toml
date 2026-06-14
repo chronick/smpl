@@ -1,0 +1,12 @@
+[package]
+name = "smpl-native"
+version = "0.1.0"
+edition = "2021"
+description = "Optional pyo3 DSP extensions for smpl (proves the native-module build path; logic ported only where profiling demands it)."
+
+[lib]
+name = "smpl_native"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.22", features = ["extension-module", "abi3-py310"] }

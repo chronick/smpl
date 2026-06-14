@@ -1,0 +1,43 @@
+[project]
+name = "smpl"
+version = "0.1.0"
+description = "smpl: the unified CLI for the smplstream audio-analysis toolchain (multicall + git-style external subcommand discovery)."
+requires-python = ">=3.10"
+dependencies = [
+    "smplstream",
+    "smpl-analysis",
+]
+
+# Multicall entry points: `smpl` dispatches on argv[1]; each `smpl-<x>` shim is the
+# SAME entry, dispatching on argv[0]'s basename (BusyBox-style, the Python way).
+# Heavy generators (smpl-gen / smpl-cloud / smpl-transcribe / smpl-stems / smpl-synth /
+# smpl-embed) are intentionally NOT here — they are separate PATH-discovered tools.
+[project.scripts]
+smpl = "smpl_cli.dispatch:main"
+smpl-read = "smpl_cli.dispatch:main"
+smpl-write = "smpl_cli.dispatch:main"
+smpl-resolve = "smpl_cli.dispatch:main"
+smpl-gc = "smpl_cli.dispatch:main"
+smpl-as-wav = "smpl_cli.dispatch:main"
+smpl-from-wav = "smpl_cli.dispatch:main"
+smpl-cat = "smpl_cli.dispatch:main"
+smpl-describe = "smpl_cli.dispatch:main"
+smpl-select = "smpl_cli.dispatch:main"
+smpl-filter = "smpl_cli.dispatch:main"
+smpl-env = "smpl_cli.dispatch:main"
+smpl-fx = "smpl_cli.dispatch:main"
+smpl-eq = "smpl_cli.dispatch:main"
+smpl-slice = "smpl_cli.dispatch:main"
+smpl-loudness = "smpl_cli.dispatch:main"
+smpl-spectral = "smpl_cli.dispatch:main"
+smpl-qc = "smpl_cli.dispatch:main"
+smpl-spectrogram = "smpl_cli.dispatch:main"
+smpl-convert = "smpl_cli.dispatch:main"
+smpl-view = "smpl_cli.dispatch:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/smpl_cli"]
