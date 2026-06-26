@@ -92,7 +92,16 @@ smpl read x.wav | smpl as-wav | sox - -t wav - reverb 50 \
 
 # Generate from a prompt (a source tool) and analyze it — prompt via stdin
 echo 'a 4/4 distorted drum loop' | smpl gen --backend synth --prompt - | smpl cat
+
+# Author an explicit drum loop from a step-grid DSL → a smplmix session, then render
+smpl pattern --pattern-file loop.json --out loop.smplset.json   # per-hit velocity / pitch / swing
+smplmix render loop.smplset.json -o loop.wav                     # composition runs on smplmix
 ```
+
+`smpl pattern` is the LLM-friendly way to write a drum loop: a 16-step (or N-step) grid,
+per-track `steps`/`hits` with **velocity** (→ gain), **pitch** (semitones → transpose),
+**swing** (even-step shuffle) and per-hit **nudge** — expanded into a ready-to-render
+smplmix session. See `smpl pattern --help` for the full DSL.
 
 ## Built for LLMs
 
@@ -120,6 +129,7 @@ composes the pipe, resolves only what's needed, and reads back the report.
 | `convert` | format / sample-rate / bit-depth conversion (new frame, own hash) |
 | `gain` `normalize` `limit` | level management: dB gain (pure), LUFS-normalize (+ true-peak ceiling), true-peak limit |
 | `filter` `eq` `env` `fx` `slice` `select` | the edit filters + stream selection |
+| `pattern` | step-grid drum-loop DSL → smplmix session (velocity / pitch / swing / nudge) |
 | `view` | the multimodal LLM/human report |
 | `gen` · `cloud` · `transcribe` · `stems` · `embed` · `synth` | PATH-discovered heavy tools (own venvs) |
 

@@ -41,6 +41,7 @@ smpl-limit = "smpl_cli.dispatch:main"
 smpl-slice = "smpl_cli.dispatch:main"
 smpl-select = "smpl_cli.dispatch:main"
 smpl-view = "smpl_cli.dispatch:main"
+smpl-pattern = "smpl_cli.dispatch:main"
 
 [build-system]
 requires = ["hatchling"]
