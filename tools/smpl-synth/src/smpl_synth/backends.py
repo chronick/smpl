@@ -178,15 +178,22 @@ def _driver_program(
     # default (light) install never reaches here. It loads the user SynthDef, schedules one
     # \\new at t=0 and a \\c_set end at t=dur, and records NRT to a float32 WAV.
     return f"""
-var synthSource, score, oscPath, inFile;
+var synthSource, synthDef, score, inFile;
 synthSource = {json.dumps(synthdef_source)};
 inFile = {in_decl};
-// Compile the user/default SynthDef into a SynthDescLib for Score.
-synthSource.interpret;
+// Interpret the source (which ends in `.add`, so it RETURNS the SynthDef) and load its compiled
+// bytes into the NRT server via `/d_recv` at t=0. Without this the offline server never has the
+// SynthDef, so `/s_new` instantiates nothing and the render is a 0-frame WAV. (`.add` alone
+// targets a *running* server, which does not exist in this offline lang context.)
+synthDef = synthSource.interpret;
 score = [
+    [0.0, ['/d_recv', synthDef.asBytes]],
     [0.0, ['/s_new', "{synth_name}", 1000, 0, 0] ++ {args_literal}],
     [{float(duration)}, ['/c_set', 0, 0]]  // end marker so the score has a tail
 ];
+// `Score.recordNRT` forks scsynth ASYNCHRONOUSLY; exit from its completion `action`, NOT with a
+// trailing `0.exit` (which would kill sclang before the render finishes — the other half of the
+// 0-frame bug).
 Score.recordNRT(
     score,
     oscFilePath: nil,
@@ -196,9 +203,9 @@ Score.recordNRT(
     headerFormat: "WAV",
     sampleFormat: "float",
     options: ServerOptions.new.numOutputBusChannels_(2),
-    duration: {float(duration)}
+    duration: {float(duration)},
+    action: {{ 0.exit; }}
 );
-0.exit;
 """.strip()
 
 
