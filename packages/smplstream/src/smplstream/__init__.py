@@ -38,6 +38,7 @@ from .frames import (  # noqa: E402
     text_frame,
     validate_frame,
     vector_frame,
+    verdict_frame,
 )
 from .hashing import (  # noqa: E402
     FORMAT_TAG_FLOAT32LE,
@@ -84,6 +85,7 @@ __all__ = [
     "marker_frame",
     "image_frame",
     "vector_frame",
+    "verdict_frame",
     "validate_frame",
     "FORMAT_TAG_FLOAT32LE",
     "audio_hash_file",

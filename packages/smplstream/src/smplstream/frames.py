@@ -11,12 +11,13 @@ from typing import Any, Optional
 from .ids import PROTOCOL_VERSION, mint_id
 
 KINDS = frozenset(
-    {"audio", "image", "video", "midi", "text", "vector", "marker", "feature", "control", "error"}
+    {"audio", "image", "video", "midi", "text", "vector", "marker", "feature", "control",
+     "error", "verdict"}
 )
 
 # Heavy kinds carry bytes via `hash`; small kinds inline via `data`. `vector` is size-split.
 _HASH_KINDS = frozenset({"audio", "image", "video"})
-_DATA_KINDS = frozenset({"text", "marker", "feature", "control", "error"})
+_DATA_KINDS = frozenset({"text", "marker", "feature", "control", "error", "verdict"})
 
 # Inline payload ceiling (spec → *Inline payloads & size limits*).
 MAX_INLINE_BYTES = 64 * 1024
@@ -80,6 +81,32 @@ def feature_frame(data: dict, *, role: Optional[str] = None, of: Optional[str] =
     if role:
         frame["role"] = role
     _attach_lineage(frame, of, kw.get("lineage"))
+    for k in ("op", "op_version", "params"):
+        if kw.get(k) is not None:
+            frame[k] = kw[k]
+    return mint_id(frame)
+
+
+def verdict_frame(
+    data: dict,
+    *,
+    of: str,
+    lineage: list[str],
+    schema_version: str,
+    role: Optional[str] = None,
+    **kw,
+) -> dict:
+    """A `verdict` frame — the judgment layer above `feature` (music/smplstream/verdict-frames.md).
+
+    Derived, data-carrying kind: references the judged audio via ``of`` and the feature frames +
+    stats artifact it was computed from via ``lineage``. ``schema_version`` is REQUIRED (the
+    verdict corpus rots without it — it records which feature-key SCHEMA the judgment was made
+    under). Mirrors :func:`feature_frame`, plus the required ``schema_version`` field.
+    """
+    frame: dict[str, Any] = {"kind": "verdict", "data": data, "schema_version": schema_version}
+    if role:
+        frame["role"] = role
+    _attach_lineage(frame, of, lineage)
     for k in ("op", "op_version", "params"):
         if kw.get(k) is not None:
             frame[k] = kw[k]
@@ -177,6 +204,16 @@ def validate_frame(frame: dict) -> list[str]:
             problems.append("`error` frame must carry data.code from the standard enum")
         elif not d.get("message"):
             problems.append("`error` frame data MUST include a `message`")
+    if kind == "verdict":
+        # The judgment layer: schema_version is REQUIRED (corpus survivability) and the payload
+        # must carry a rollup with a routing decision from the standard four-token enum.
+        if not frame.get("schema_version"):
+            problems.append("`verdict` frame MUST carry `schema_version`")
+        d = frame.get("data")
+        if not isinstance(d, dict) or not isinstance(d.get("rollup"), dict):
+            problems.append("`verdict` frame data MUST include a `rollup` object")
+        elif d["rollup"].get("decision") not in {"keep", "listen", "cut", "alter"}:
+            problems.append("`verdict` rollup.decision must be one of keep|listen|cut|alter")
     if kind == "vector":
         meta = frame.get("meta") or {}
         dim = meta.get("dim")

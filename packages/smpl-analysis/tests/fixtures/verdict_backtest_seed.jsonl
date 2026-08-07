@@ -1,0 +1,16 @@
+# Verdict backtest SEED corpus (ticket vault-2kyt) — synthetic, precomputed-feature rows.
+# One role ("kick"), two linear axes a/b whose profile is median 0 / MAD 1, so feature value == z.
+# Spans clear keeps, a band-clean CHARACTER failure (the residual CLAP catches later), the
+# repairable middle band (gate `alter` → folds to listen), and clear cuts — with some human
+# disagreements so precision/recall/auto-keep are non-trivial (and demonstrate the metric).
+# Scored against tests/fixtures/verdict_backtest_seed_profile.json (n=30, not thin).
+{"id": "keep-01", "role": "kick", "features": {"a": 0.2, "b": -0.3}, "human_verdict": "keep", "feature_schema": "smplstream/1", "note": "clean sub, in-band both axes"}
+{"id": "keep-02", "role": "kick", "features": {"a": -0.5, "b": 0.4}, "human_verdict": "keep", "feature_schema": "smplstream/1", "note": "clean"}
+{"id": "keep-03", "role": "kick", "features": {"a": 1.0, "b": 0.2}, "human_verdict": "keep", "feature_schema": "smplstream/1", "note": "slightly bright but fine"}
+{"id": "keep-char-fail", "role": "kick", "features": {"a": 0.3, "b": 0.1}, "human_verdict": "cut", "feature_schema": "smplstream/1", "note": "band-clean but wrong CHARACTER (too happy / synthwave) — the false auto-keep only a character axis / CLAP catches"}
+{"id": "alter-01", "role": "kick", "features": {"a": 0.1, "b": 2.4}, "human_verdict": "listen", "feature_schema": "smplstream/1", "note": "mid tilt in the repairable band; human agrees it needs a listen"}
+{"id": "alter-02", "role": "kick", "features": {"a": 2.6, "b": 0.0}, "human_verdict": "keep", "feature_schema": "smplstream/1", "note": "gate flags mid-band tilt but human kept it as-is"}
+{"id": "alter-03", "role": "kick", "features": {"a": 0.0, "b": -3.0}, "human_verdict": "cut", "feature_schema": "smplstream/1", "note": "deep in the alter band; human culled it outright"}
+{"id": "cut-01", "role": "kick", "features": {"a": 0.1, "b": 5.0}, "human_verdict": "cut", "feature_schema": "smplstream/1", "note": "hard fail on b"}
+{"id": "cut-02", "role": "kick", "features": {"a": -4.5, "b": 0.2}, "human_verdict": "cut", "feature_schema": "smplstream/1", "note": "hard fail on a"}
+{"id": "cut-03", "role": "kick", "features": {"a": 4.0, "b": 0.1}, "human_verdict": "listen", "feature_schema": "smplstream/1", "note": "gate auto-cut but human wanted to audition it first"}

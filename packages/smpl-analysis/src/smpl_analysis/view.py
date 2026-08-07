@@ -91,14 +91,37 @@ def _unit_for(key: str) -> str:
     a *display* convenience for the report — it never rewrites the key.
     """
     k = key.lower()
+    # Envelope / width leaf names carry mixed units the suffix table can't disambiguate
+    # (e.g. `rise_slope_db_ms` is dB/ms, not ms) — resolve them by leaf name first.
+    leaf = k.rsplit(".", 1)[-1]
+    leaf_units = {
+        "peak_db_over_floor": "dB",
+        "attack_ms_10_90": "ms",
+        "rise_slope_db_ms": "dB/ms",
+        "t20_ms": "ms",
+        "early_decay_slope": "dB/ms",
+        "sustain_ratio_150ms": "ratio",
+        "correlation": "−1..1",
+        "side_mid_ratio": "ratio",
+        # movement / clarity (vault-1fxy) — leaf names the suffix table can't disambiguate.
+        # (the `*_db` keys below fall through to the `_db` suffix → "dB" automatically.)
+        "hf_silence_pct": "%",
+        "mud_presence_ratio": "ratio",
+        "presence_focus_ratio": "ratio",
+        "presence_transient_ratio": "crest",
+    }
+    if leaf in leaf_units:
+        return leaf_units[leaf]
     for suffix, unit in (
         ("_lufs", "LUFS"),
         ("_dbtp", "dBTP"),
         ("_dbfs", "dBFS"),
+        ("_db_ms", "dB/ms"),
         ("_db", "dB"),
         ("_hz", "Hz"),
         ("_cents", "cents"),
         ("_lu", "LU"),
+        ("_ms", "ms"),
         ("_s", "s"),
     ):
         if k.endswith(suffix):

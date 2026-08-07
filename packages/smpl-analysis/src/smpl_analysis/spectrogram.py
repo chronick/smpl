@@ -37,6 +37,24 @@ _HOP = 512
 _N_MELS = 128
 
 
+def pad_short_signal(y, n_fft: int):
+    """Zero-pad a signal shorter than the FFT window up to ``n_fft`` samples.
+
+    Short one-shots (single-cycle subs, tiny percussion) are shorter than the
+    2048-sample window. librosa's STFT then warns and returns a near-empty
+    (degenerate) transform — and on older librosa raised ``ParameterError``,
+    which propagated up and caused the mel image frame to be dropped entirely
+    during ``describe-all`` / contact-sheet builds. Padding to one full window
+    guarantees a valid, full-resolution mel across librosa versions and never
+    silently drops a frame; longer signals are returned unchanged.
+    """
+    import numpy as np
+
+    if y.shape[-1] < n_fft:
+        y = np.pad(y, (0, n_fft - y.shape[-1]))
+    return y
+
+
 def _load_mono(path: str) -> tuple["object", int]:
     """Decode an audio file to a mono float32 array + its native sample rate.
 
@@ -63,6 +81,7 @@ def _render_mel(y, sr) -> bytes:
     import matplotlib.pyplot as plt
     import numpy as np
 
+    y = pad_short_signal(y, _N_FFT)  # short one-shots → full window (no drop, no warning)
     S = librosa.feature.melspectrogram(y=y, sr=sr, n_fft=_N_FFT, hop_length=_HOP, n_mels=_N_MELS)
     S_db = librosa.power_to_db(S, ref=np.max)
     fig, ax = plt.subplots(figsize=(10, 4))
@@ -103,6 +122,7 @@ def _render_hpss(y, sr) -> bytes:
     import matplotlib.pyplot as plt
     import numpy as np
 
+    y = pad_short_signal(y, _N_FFT)  # short one-shots → full window (no drop, no warning)
     y_harm, y_perc = librosa.effects.hpss(y)
     fig, axes = plt.subplots(2, 1, figsize=(10, 6), sharex=True)
     for ax, comp, title in (

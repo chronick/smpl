@@ -1,0 +1,11 @@
+{
+  "role": "kick",
+  "op_version": "stats@1",
+  "n": 30,
+  "corpus_size": 30,
+  "cas_hash": "blake3:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "stats": {
+    "a": {"median": 0.0, "mad": 1.0, "p10": -1.28, "p50": 0.0, "p90": 1.28, "n": 30, "domain": "linear"},
+    "b": {"median": 0.0, "mad": 1.0, "p10": -1.28, "p50": 0.0, "p90": 1.28, "n": 30, "domain": "linear"}
+  }
+}

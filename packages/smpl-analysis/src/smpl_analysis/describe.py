@@ -7,6 +7,13 @@ out, aggregating the whole light analysis tier in one pass:
   - **loudness** (`smpl_analysis.loudness`) — BS.1770 integrated/true-peak/short-term
   - **spectral shape** (`smpl_analysis.spectral`) — flatness/crest/spread/rolloff/…
   - **technical QC** (`smpl_analysis.qc`) — clipping/phase/DC/SNR/lossy-origin (+ defect markers)
+  - **aligned-hit envelope** (`smpl_analysis.envelope`) — attack/decay/sustain scalars
+  - **per-band width** (`smpl_analysis.width`) — per-band stereo correlation / side-mid ratio
+  - **movement** (`smpl_analysis.movement`) — pump depth / per-band modulation / tail decay
+    (duration-gated: null on material too short to support the time-varying read)
+  - **clarity** (`smpl_analysis.clarity`) — mud/presence balance, low-mid masking, band contrast
+    (duration-gated like movement)
+  - **space** (`smpl_analysis.space`) — mono-collapse penalty (broadband complement to width)
   - **one mel spectrogram** (`smpl_analysis.spectrogram`) — when `want_image`
   - **a caption** (`text` frame, role `caption`) — a concise human/LLM summary of the
     headline numbers (duration, sr, ch, integrated LUFS, true-peak, brightness, flatness,
@@ -89,6 +96,9 @@ def synthesize_caption(audio_frame: dict, derived: list[dict]) -> str:
     loud = _feature_data(derived, "loudness")
     spec = _feature_data(derived, "spectral")
     qc = _feature_data(derived, "qc")
+    # Envelope: one-shot uses role "envelope"; a loop reports per-component — fall back to the
+    # percussive layer so the caption still carries an attack/sustain summary.
+    env = _feature_data(derived, "envelope") or _feature_data(derived, "envelope.percussive")
 
     integrated = loud.get("loudness.integrated_lufs")
     true_peak = loud.get("loudness.true_peak_dbtp")
@@ -112,6 +122,15 @@ def synthesize_caption(audio_frame: dict, derived: list[dict]) -> str:
     )
 
     parts = [head, loud_part, timbre_part]
+
+    # Envelope: attack time + 150 ms sustain-ratio give a one-glance transient shape.
+    if env:
+        attack = _stat_mean(env.get("envelope.attack_ms_10_90"))
+        sustain = _stat_mean(env.get("envelope.sustain_ratio_150ms"))
+        if attack is not None or sustain is not None:
+            parts.append(
+                f"attack {_fmt_num(attack, 'ms')} · sustain150 {_fmt_num(sustain, ndigits=2)}"
+            )
 
     # QC flags — only surface the ones that actually fired (clean by omission).
     flags: list[str] = []
@@ -168,6 +187,46 @@ def describe_audio_frame(audio_frame: dict, *, want_image: bool = True) -> list[
         out.extend(QC.qc_audio_frame(audio_frame))
     except Exception as exc:
         out.append(error_frame("op_failed", f"qc: {exc}", of=of, op=OP))
+
+    # --- aligned-hit envelope tier (vault-3tuy) ---
+    try:
+        from . import envelope as ENV
+
+        out.extend(ENV.envelope_audio_frame(audio_frame))
+    except Exception as exc:
+        out.append(error_frame("op_failed", f"envelope: {exc}", of=of, op=OP))
+
+    # --- per-band stereo width tier (vault-3tuy) ---
+    try:
+        from . import width as W
+
+        out.extend(W.width_audio_frame(audio_frame))
+    except Exception as exc:
+        out.append(error_frame("op_failed", f"width: {exc}", of=of, op=OP))
+
+    # --- movement tier (vault-1fxy) — pump/modulation/tail-decay (duration-gated) ---
+    try:
+        from . import movement as MV
+
+        out.extend(MV.movement_audio_frame(audio_frame))
+    except Exception as exc:
+        out.append(error_frame("op_failed", f"movement: {exc}", of=of, op=OP))
+
+    # --- clarity tier (vault-1fxy) — mud/presence/masking/contrast (duration-gated) ---
+    try:
+        from . import clarity as CL
+
+        out.extend(CL.clarity_audio_frame(audio_frame))
+    except Exception as exc:
+        out.append(error_frame("op_failed", f"clarity: {exc}", of=of, op=OP))
+
+    # --- space tier (vault-1fxy) — broadband mono-collapse penalty (complement to width) ---
+    try:
+        from . import space as SPACE
+
+        out.extend(SPACE.space_audio_frame(audio_frame))
+    except Exception as exc:
+        out.append(error_frame("op_failed", f"space: {exc}", of=of, op=OP))
 
     # --- one mel spectrogram image for the vision LLM (research §2) ---
     if want_image:

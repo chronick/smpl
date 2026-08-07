@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 import pytest
 import soundfile as sf
@@ -81,3 +83,41 @@ def test_image_frames_are_structurally_valid(audio_frame):
     out = spec.render_audio_frame(audio_frame, kinds=["mel", "waveform"])
     for f in out:
         assert F.validate_frame(f) == []
+
+
+# --- short one-shot regression (vault-2t9g) ---------------------------------------------
+# A signal shorter than the 2048-sample FFT window used to trip librosa's "n_fft too large"
+# path — warning + degenerate transform on modern librosa, a hard ParameterError (dropped
+# frame) on older librosa. These assert the mel/hpss path pads up to a full window so a
+# valid PNG is always produced and the warning never fires.
+
+
+@pytest.mark.parametrize("n", [200, 64, 4])  # ~0.005s one-shot down to an ultra-short (<256) blip
+@pytest.mark.parametrize("kind", ["mel", "hpss"])
+def test_render_short_signal_no_drop_no_warning(kind, n):
+    sr = 44100
+    y = (0.3 * np.sin(2 * np.pi * 220 * np.arange(n) / sr)).astype(np.float32)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        png = spec.render_array(y, sr, kind)
+    assert _is_png(png)
+    assert len(png) > 1000  # a real plot, not an empty canvas
+    assert not any("too large for input signal" in str(w.message) for w in caught)
+
+
+def test_render_audio_frame_ultra_short_still_emits_image(tmp_path, cas_dir):
+    """A sub-window one-shot (<256 samples) still yields exactly one mel image frame."""
+    sr = 44100
+    y = (0.3 * np.sin(2 * np.pi * 220 * np.arange(120) / sr)).astype(np.float32)
+    wav = tmp_path / "tiny.wav"
+    sf.write(str(wav), y, sr, subtype="FLOAT")
+    h = cas.put_audio_file(str(wav))
+    meta = cas.read_meta(h) or {}
+    af = F.audio_frame(
+        h, sr=meta.get("sr", sr), ch=meta.get("ch", 1), dur=meta.get("dur", len(y) / sr),
+        role="source", op="read", op_version="read@1",
+    )
+    out = spec.render_audio_frame(af)
+    assert len(out) == 1
+    assert out[0]["kind"] == "image" and out[0]["role"] == "spectrogram:mel"
+    assert _is_png(cas.get_path(out[0]["hash"]).read_bytes())

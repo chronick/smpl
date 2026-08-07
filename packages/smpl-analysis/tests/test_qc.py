@@ -165,6 +165,29 @@ def test_lossy_brickwalled_flags_cutoff():
     assert res["qc.lossy.confidence"] > 0.3
 
 
+def test_lossy_sub_only_kick_not_flagged():
+    # A genuinely sub-only synth kick body: energy all below ~140 Hz, dead above. The old
+    # detector scored this 1.0 (absence-of-highs read as a codec brickwall). It must not
+    # flag — the knee is implausibly low for any codec cutoff (vault-3t1l).
+    rng = np.random.default_rng(3)
+    from scipy.signal import butter, sosfiltfilt
+
+    noise = rng.normal(0, 0.3, SR).astype(np.float64)
+    sos = butter(12, 140 / (SR / 2), btype="low", output="sos")
+    sub = sosfiltfilt(sos, noise).reshape(-1, 1).astype(np.float32)
+    res = qc.lossy_origin(sub, SR)
+    assert res["qc.lossy.confidence"] < 0.3
+
+
+def test_lossy_pure_sine_not_flagged():
+    # A pure 50 Hz sine — the pathological pure-sub case (mirrors the refmatch centroid
+    # finding). Absence of highs is not shelf-shape evidence; must not flag (vault-3t1l).
+    t = np.arange(SR, dtype=np.float64) / SR
+    sine = (0.5 * np.sin(2 * np.pi * 50 * t)).reshape(-1, 1).astype(np.float32)
+    res = qc.lossy_origin(sine, SR)
+    assert res["qc.lossy.confidence"] < 0.3
+
+
 # --- end-to-end: frame emission through the CAS -----------------------------------------
 
 

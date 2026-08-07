@@ -46,6 +46,11 @@ grid via ``steps`` (uniform velocity/pitch/swing) or ``hits`` (per-hit ``velocit
   Per-track/per-hit ``swing`` overrides the global value. Recommended ≤ 0.6.
 - **nudge** (per-hit, beats) is an explicit ± timing offset added to any hit, for
   micro-timing the sequencer swing can't express.
+- **bar** / **bars** (per-hit) restrict a hit to specific bar(s) of a multi-bar
+  ``bars`` pattern (1-indexed): ``"bar": 2`` fires only on bar 2; ``"bars": [1,3]``
+  on bars 1 and 3. Absent ⇒ every bar (backward compatible). This is how you break
+  the 1-bar-repeat deadness — a ghost on bar 2, a fill on the last bar, an
+  open/closed tone swap per bar — without leaving the step grid.
 
 velocity/amplitude and pitch are the two levers that make a step pattern read as a
 *played* drum loop rather than a metronome — both are first-class here.
@@ -169,6 +174,16 @@ def _expand(p: dict) -> dict:
         clips = []
         for b in range(1, bars + 1):
             for h in hits:
+                # Per-bar gating (movement / kill the 1-bar-repeat): a hit may name
+                # the bar(s) it fires on via `bar` (int) or `bars` (list of ints,
+                # 1-indexed). Absent ⇒ every bar (backward compatible). Lets you add
+                # a ghost on bar 2, a fill on the last bar, an open/closed swap, etc.
+                hbar = h.get("bar")
+                if hbar is not None and b != int(hbar):
+                    continue
+                hbars = h.get("bars")
+                if hbars is not None and b not in {int(x) for x in hbars}:
+                    continue
                 step = int(h["step"])
                 if step < 1 or step > grid:
                     raise ValueError(f"track '{name}': step {step} out of range 1..{grid}")

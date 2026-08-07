@@ -37,6 +37,16 @@ _LOSSY_MIN_KNEE_FRAC = 0.05
 # Confidence saturates once the band well above the knee is this many dB below the in-band
 # level (a real LAME/AAC brickwall buries the upper band at the noise floor: −60 dB+).
 _LOSSY_FLOOR_DB = 60.0
+# Shelf-shape evidence (vault-3t1l): a lossy brickwall must look like a codec cutoff, not
+# merely "no highs". Three independent requirements, so a genuinely sub-only synth (a tight
+# kick, a 50 Hz sine) — all energy below the knee, dead above it — no longer scores 1.0.
+#   1. PLAUSIBILITY: a real MP3/AAC cutoff sits high (128 kbps LAME ≈ 16 kHz; even 96 kbps is
+#      ~15 kHz). A "cutoff" down in the bass/mids is band-limited *content*, never a codec.
+_LOSSY_MIN_PLAUSIBLE_CUTOFF_HZ = 10000.0
+#   2. SLOPE: a brickwall drops hard right at the knee. Measure the dB step across a third
+#      octave centred on the cutoff; a codec buries it, natural roll-off is gentle (a few
+#      dB/third-octave). Confidence ramps with steepness and needs the drop to clear this.
+_LOSSY_SLOPE_DB = 24.0
 
 
 def _dbfs(x: float) -> float:
@@ -281,6 +291,14 @@ def lossy_origin(samples, sr: int) -> dict[str, Any]:
     knee_frac = (nyquist - cutoff) / nyquist
     if knee_frac < _LOSSY_MIN_KNEE_FRAC or knee_idx >= len(freqs) - 2:
         return out  # full-band content → not lossy-flagged
+
+    # --- shelf-shape evidence, not mere absence-of-highs (vault-3t1l) -----------------------
+    # GATE 1 — plausibility: a codec cutoff sits high. A knee down in the bass/mids is just
+    # band-limited content (a sub-only kick keys its 0.999-energy knee at ~140 Hz), never an
+    # MP3 brickwall. Report the cutoff for transparency but do not flag.
+    if cutoff < _LOSSY_MIN_PLAUSIBLE_CUTOFF_HZ:
+        return out
+
     in_band = power[: knee_idx + 1]
     # measure deadness in the upper HALF of the knee→Nyquist span (clear of the knee skirt),
     # where a true brickwall is at the noise floor but natural roll-off still carries energy
@@ -291,8 +309,27 @@ def lossy_origin(samples, sr: int) -> dict[str, Any]:
     if in_band_avg <= 0 or above.size == 0:
         return out
     floor_db = float(10.0 * np.log10((above_avg + 1e-30) / in_band_avg))
-    # how far below the in-band level the upper region sits, normalized against the threshold
-    confidence = round(min(1.0, max(0.0, (-floor_db) / _LOSSY_FLOOR_DB)), 3)
+    # SHELF term — how far below the in-band level the sustained upper region sits.
+    shelf_conf = min(1.0, max(0.0, (-floor_db) / _LOSSY_FLOOR_DB))
+
+    # GATE 2 — slope: a brickwall drops hard at the knee. Compare the mean power one third
+    # octave BELOW the cutoff against one third octave ABOVE it; a codec buries the step,
+    # natural roll-off is gentle. This is what distinguishes a hard cutoff from a spectrum
+    # that merely tapers (a pad, a filtered synth) or has no highs at all (a sub kick).
+    third = 2.0 ** (1.0 / 3.0)
+    below_band = power[(freqs >= cutoff / third) & (freqs <= cutoff)]
+    above_band = power[(freqs > cutoff) & (freqs <= cutoff * third)]
+    below_avg = float(below_band.mean()) if below_band.size else 0.0
+    above_band_avg = float(above_band.mean()) if above_band.size else 0.0
+    if below_avg <= 0:
+        return out
+    slope_db = float(10.0 * np.log10((above_band_avg + 1e-30) / below_avg))  # negative = drop
+    slope_conf = min(1.0, max(0.0, (-slope_db) / _LOSSY_SLOPE_DB))
+
+    # confidence needs ALL THREE: a plausible cutoff (gated above), a steep slope, AND a
+    # sustained dead shelf. The product means either a gentle slope or a live upper band
+    # pulls it down — it never reaches 1.0 on absence-of-highs alone.
+    confidence = round(slope_conf * shelf_conf, 3)
     out["qc.lossy.confidence"] = float(confidence)
     return out
 

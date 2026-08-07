@@ -67,6 +67,95 @@ adding a row is additive and non-breaking).
 | `tonal.key_scale` | Essentia | major/minor | scalar | vault-379o |
 | `tonal.tuning_frequency` | Essentia | Hz | scalar | vault-379o |
 | `fingerprint.chromaprint` | fingerprint | id (int-array/base64) | scalar | vault-2xro |
+| `envelope.peak_db_over_floor` | envelope (unit-suffixed) | dB | scalar | vault-3tuy |
+| `envelope.attack_ms_10_90` | envelope | ms | scalar | vault-3tuy |
+| `envelope.rise_slope_db_ms` | envelope | dB/ms | scalar | vault-3tuy |
+| `envelope.t20_ms` | envelope | ms (None if never −20 dB) | scalar | vault-3tuy |
+| `envelope.early_decay_slope` | envelope | dB/ms | scalar | vault-3tuy |
+| `envelope.sustain_ratio_150ms` | envelope | ratio (0–1+) | scalar | vault-3tuy |
+| `width.sub.correlation` | width | unitless (−1..1) | scalar | vault-3tuy |
+| `width.sub.side_mid_ratio` | width | ratio (0=mono) | scalar | vault-3tuy |
+| `width.bass.correlation` | width | unitless (−1..1) | scalar | vault-3tuy |
+| `width.bass.side_mid_ratio` | width | ratio (0=mono) | scalar | vault-3tuy |
+| `width.lomid.correlation` | width | unitless (−1..1) | scalar | vault-3tuy |
+| `width.lomid.side_mid_ratio` | width | ratio (0=mono) | scalar | vault-3tuy |
+| `width.mid.correlation` | width | unitless (−1..1) | scalar | vault-3tuy |
+| `width.mid.side_mid_ratio` | width | ratio (0=mono) | scalar | vault-3tuy |
+| `width.uppermid.correlation` | width | unitless (−1..1) | scalar | vault-3tuy |
+| `width.uppermid.side_mid_ratio` | width | ratio (0=mono) | scalar | vault-3tuy |
+| `width.air.correlation` | width | unitless (−1..1) | scalar | vault-3tuy |
+| `width.air.side_mid_ratio` | width | ratio (0=mono) | scalar | vault-3tuy |
+| `width.full.correlation` | width | unitless (−1..1) | scalar | vault-3tuy |
+| `width.full.side_mid_ratio` | width | ratio (0=mono) | scalar | vault-3tuy |
+| `movement.sidechain_db` | movement (unit-suffixed) | dB | scalar (None if gated) | vault-1fxy |
+| `movement.bass_mod_depth_db` | movement | dB | scalar (None if gated) | vault-1fxy |
+| `movement.hf_mod_depth_db` | movement | dB | scalar (None if gated) | vault-1fxy |
+| `movement.hf_silence_pct` | movement | % (0–100) | scalar (None if gated) | vault-1fxy |
+| `movement.tail_decay_200ms_db` | movement | dB | scalar (None if gated) | vault-1fxy |
+| `clarity.low_mid_masking_db` | clarity (unit-suffixed) | dB | scalar (None if gated) | vault-1fxy |
+| `clarity.mud_presence_ratio` | clarity | ratio (>1 = mud-heavy) | scalar (None if gated) | vault-1fxy |
+| `clarity.band_contrast_lo_db` | clarity | dB | scalar (None if gated) | vault-1fxy |
+| `clarity.band_contrast_hi_db` | clarity | dB | scalar (None if gated) | vault-1fxy |
+| `clarity.presence_focus_ratio` | clarity | ratio (0–1) | scalar (None if gated) | vault-1fxy |
+| `clarity.presence_transient_ratio` | clarity | ratio (crest) | scalar (None if gated) | vault-1fxy |
+| `space.mono_collapse_penalty_db` | space (unit-suffixed) | dB | scalar | vault-1fxy |
+| `spectrum.oct6.<hz>` | octave-spectrum | dB (rel. total in-band power, ≤ 0) | scalar per 1/6-octave bin | vault-22oy |
+| `spectrum.band.<name>` | octave-spectrum | dB (rel. total in-band power) | scalar per standardized band | vault-22oy |
+
+## Standardized band edges (vault-3tuy)
+
+The `width.*` per-band keys (and any future band-split feature) use these six
+**standardized band edges** so every band-aware tool splits the spectrum the same
+way. `full` (20 Hz–Nyquist) is the broadband reference kept alongside the split so a
+wide-sub mono-collapse a single broadband number would hide stays visible.
+
+| Band | Key stem | Edges (Hz) |
+|---|---|---|
+| Sub | `width.sub` | 20 – 60 |
+| Bass | `width.bass` | 60 – 200 |
+| LoMid | `width.lomid` | 200 – 500 |
+| Mid | `width.mid` | 500 – 2 000 |
+| UpperMid | `width.uppermid` | 2 000 – 6 000 |
+| Air | `width.air` | 6 000 – 20 000 |
+| (full-band ref) | `width.full` | 20 – 20 000 |
+
+The `movement.*` and `clarity.*` families **reuse these same edges** (they do not
+redefine them): movement's bass-modulation read uses the Bass band (60–200), its
+HF reads use the Air lower edge (≥6 kHz); clarity's band powers use all six bands,
+with "presence" = the UpperMid band (2–6 kHz). The `spectrum.band.*` levels
+(octave-spectrum, vault-22oy) also reuse the six edges; its `spectrum.oct6.*` bins are a
+finer 1/6-octave split of the same 20 Hz–20 kHz range.
+
+## Duration / role gating (vault-1fxy)
+
+The `movement.*` and `clarity.*` families measure **time-variation and
+mix-interaction** — pump depth, per-band modulation, tail decay, mud/presence
+balance, masking. On one-shots and very short fragments these are **degenerate**
+(a single hit has no modulation cycle; a fragment has no stable spectrum). So both
+families are **duration-gated**, following the LUFS-integrated precedent
+(`loudness.integrated_lufs` returns `None` below the 0.4 s block it needs): material
+shorter than the family's minimum emits **every key as `None`** rather than a
+misleading number.
+
+| Family | Gate | Below the gate |
+|---|---|---|
+| `movement.*` | `dur ≥ 1.0 s` | all five keys emit `None` |
+| `clarity.*` | `dur ≥ 0.5 s` | all six keys emit `None` |
+| `space.mono_collapse_penalty_db` | **none** | a static stereo relationship is well-defined on any length (same as `width.*`) |
+
+The gate decision is recorded on the emitted frame (`params.gated`, `params.dur_s`,
+`params.min_duration_s`), so a consumer can tell "null because gated" from "null
+because the measurement failed". Per the layering rule, the gate is a
+*support-of-measurement* threshold, not a quality opinion — what counts as "enough
+pump" or "too muddy" still lives in profiles / docs, never in the tool.
+
+## Collection-stats frames (vault-3tuy)
+
+`smpl stats build` emits a `feature` frame (role `stats:<role>`) that reuses these
+same registered keys, but each value is a **distribution** —
+`{median, MAD, p10, p50, p90, n, domain}` reduced over a role corpus in the log
+domain — rather than a per-sample scalar. It mints **no new key spellings**: a
+role-stats frame is the registered keys carrying corpus statistics.
 
 ## Ownership notes (avoid double-emission)
 

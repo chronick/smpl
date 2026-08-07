@@ -57,3 +57,48 @@ def test_future_version_rejected():
 def test_mint_id_preserves_existing():
     fr = {"v": 1, "kind": "text", "id": "blake3:" + "f" * 64, "data": "x"}
     assert mint_id(fr)["id"] == "blake3:" + "f" * 64  # passthrough keeps inbound id verbatim
+
+
+def _verdict_data(decision="keep"):
+    return {
+        "stats": "collection-stats:kick (n=34)",
+        "rollup": {"decision": decision, "confidence": "high", "dominant_axis": "loudness.integrated_lufs",
+                   "distance": 0.4, "score": 71},
+        "axes": [{"key": "loudness.integrated_lufs", "measured": -9.0, "unit": "LUFS",
+                  "ref": {"median": -9.2, "mad": 0.5, "n": 34}, "z": 0.4, "verdict": "in_band"}],
+    }
+
+
+def test_verdict_frame_valid():
+    aud = "blake3:" + "a" * 64
+    fr = F.verdict_frame(_verdict_data(), of=aud, lineage=["blake3:" + "b" * 64],
+                         schema_version="smplstream/1", role="candidate:kick-07",
+                         op="judge", op_version="judge@0.1")
+    assert validate_frame(fr) == []
+    assert fr["kind"] == "verdict"
+    assert fr["schema_version"] == "smplstream/1"
+    assert fr["id"].startswith("blake3:")
+    assert fr["of"] == aud
+
+
+def test_verdict_frame_requires_schema_version():
+    fr = F.verdict_frame(_verdict_data(), of="blake3:" + "a" * 64, lineage=["x"], schema_version="")
+    assert any("schema_version" in p for p in validate_frame(fr))
+
+
+def test_verdict_frame_requires_rollup():
+    fr = F.verdict_frame({"axes": []}, of="blake3:" + "a" * 64, lineage=["x"],
+                         schema_version="smplstream/1")
+    assert any("rollup" in p for p in validate_frame(fr))
+
+
+def test_verdict_frame_decision_enum():
+    fr = F.verdict_frame(_verdict_data(decision="bogus"), of="blake3:" + "a" * 64,
+                         lineage=["x"], schema_version="smplstream/1")
+    assert any("decision" in p for p in validate_frame(fr))
+
+
+def test_verdict_kind_registered():
+    from smplstream.frames import KINDS
+
+    assert "verdict" in KINDS

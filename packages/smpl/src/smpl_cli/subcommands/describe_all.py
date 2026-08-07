@@ -22,6 +22,14 @@ HELP = "aggregate the light analysis tier: loudness+spectral+qc features + mel i
 def add_arguments(parser):
     add_selection_args(parser)
     parser.add_argument("--no-image", action="store_true", help="skip the mel spectrogram image frame")
+    parser.add_argument(
+        "--sheet", action="store_true",
+        help="also emit a batch contact sheet (best→worst by robust-z); requires --stats",
+    )
+    parser.add_argument(
+        "--stats", default=None,
+        help="role stats JSON for --sheet scoring (from `smpl stats build`)",
+    )
 
 
 def run(args) -> int:
@@ -44,6 +52,25 @@ def run(args) -> int:
             eprint(f"describe-all: {audio.get('id')}: {exc}")
             out.append(error_frame("op_failed", str(exc), of=audio.get("id"), op="describe"))
             rc = 1
+
+    # --- optional batch contact sheet over everything described this pass (vault-22oy) ---
+    if args.sheet:
+        if not args.stats:
+            eprint("describe-all: --sheet requires --stats <role.json>")
+            rc = 1
+        else:
+            try:
+                from smpl_analysis import triage as _triage
+
+                profile = _triage.load_stats_file(args.stats)
+                sheet = _triage.render_contact_sheet(out, profile, role=args.role)
+                if not sheet:
+                    eprint("describe-all: --sheet: no candidate audio frames to sheet")
+                out.extend(sheet)
+            except Exception as exc:
+                eprint(f"describe-all: --sheet: {exc}")
+                out.append(error_frame("op_failed", str(exc), op="contact-sheet"))
+                rc = 1
 
     emit(out)
     return rc
