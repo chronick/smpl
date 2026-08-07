@@ -9,6 +9,10 @@ dependencies = [
     "soundfile>=0.12",
     "scipy>=1.11",
     "librosa>=0.10",
+    # Floor numba explicitly (librosa's transitive dep): without it, a fresh unlocked
+    # resolve (e.g. `uv tool install` from git) can backtrack onto fossil numba 0.53 /
+    # llvmlite 0.36, which fails to build on any modern Python.
+    "numba>=0.59",
     "pyloudnorm>=0.1.1",   # ITU-R BS.1770 integrated LUFS
     "matplotlib>=3.7",     # spectrogram / waveform PNG rendering
 ]
