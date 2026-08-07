@@ -1,0 +1,74 @@
+{
+ "loudness_before": {
+  "loudness.integrated_lufs": -20.79,
+  "loudness.true_peak_dbtp": -6.71,
+  "loudness.max_short_term_lufs": -20.71
+ },
+ "loudness_after_normalize_lufs_-14": {
+  "loudness.integrated_lufs": -15.08,
+  "loudness.true_peak_dbtp": -1.0,
+  "loudness.max_short_term_lufs": -15.0
+ },
+ "qc_clean": {
+  "qc.clipping.detected": false,
+  "qc.dc_offset_dbfs": -85.17,
+  "qc.snr_db": 5.19,
+  "qc.lossy.spectral_cutoff_hz": 22017.7,
+  "qc.lossy.expected_nyquist_hz": 22050.0,
+  "qc.lossy.confidence": 0.0
+ },
+ "qc_lossy": {
+  "qc.clipping.detected": false,
+  "qc.dc_offset_dbfs": -84.34,
+  "qc.snr_db": 4.88,
+  "qc.lossy.spectral_cutoff_hz": 16462.1,
+  "qc.lossy.expected_nyquist_hz": 22050.0,
+  "qc.lossy.confidence": 0.856
+ },
+ "onsets_s": [
+  0.244,
+  0.488,
+  0.743,
+  0.987,
+  1.242,
+  1.498,
+  1.649,
+  1.741,
+  1.997,
+  2.218,
+  2.473,
+  2.635,
+  2.752,
+  2.995,
+  3.228,
+  3.495,
+  3.634,
+  3.738
+ ],
+ "memo_timing": {
+  "cold_s": 1.78,
+  "warm_s": 1.74
+ },
+ "anatomy_pipe_kinds": [
+  [
+   "audio",
+   "source"
+  ],
+  [
+   "feature",
+   "loudness"
+  ],
+  [
+   "feature",
+   "qc"
+  ],
+  [
+   "marker",
+   "defect"
+  ],
+  [
+   "text",
+   "report"
+  ]
+ ]
+}

@@ -5,10 +5,10 @@
 **A composable, content-addressed audio-analysis toolchain you pipe like `jq`.**
 
 *Pipe self-describing **frames** that reference content-addressed bytes — never the
-heavy bytes themselves. That one choice buys multi-payload streams, free
-pipeline-wide memoization, and lazy evaluation.*
+heavy bytes themselves. That one choice buys multi-payload streams, a normative
+memoization contract, and lazy evaluation.*
 
-[Protocol](#the-wire-protocol) · [Install](#install) · [Pipes](#pipes) · [For LLMs](#built-for-llms) · [Tools](#the-tools)
+[Site](https://chronick.github.io/smpl/) · [Protocol](#the-wire-protocol) · [Install](#install) · [Pipes](#pipes) · [For LLMs](#built-for-llms) · [Skills](#install-the-agent-skills) · [Tools](#the-tools)
 
 </div>
 
@@ -23,7 +23,8 @@ That pipe isolates *one subcomponent* of a sample and hands back a rich, multimo
 report — text tables **+ annotated spectrogram images + features + embeddings** — for
 exactly that subcomponent, not the whole file. Every stage is a boring Unix citizen:
 NDJSON on the wire (so `jq` works), real file paths for the heavy bytes (so `sox` and
-`ffmpeg` work), content-addressed + memoized (so re-running a pipe is nearly free).
+`ffmpeg` work), content-addressed and specified to memoize (the memo key is defined;
+cache lookups are not wired up yet).
 
 ## Why
 
@@ -35,8 +36,9 @@ any tool (or an LLM) can dissect and describe a piece of it.
 - **Composable.** One frame per line of NDJSON. `… | jq 'select(.kind=="feature")'` just works.
 - **Content-addressed.** Heavy bytes live in a CAS keyed by the **canonical decoded PCM**,
   so two identical stems share one blob across machines and re-encodes.
-- **Memoized for free.** Every cacheable op is a pure function of its inputs, version, and
-  environment — tweak the tail of a pipe and the head is a cache hit.
+- **Built to memoize.** Every cacheable op is a pure function of its inputs, version, and
+  environment; the spec defines the memo key and the CAS dedups identical results.
+  (Subcommand cache lookups are tracked work — today re-runs recompute.)
 - **Hybrid raw mode.** `smpl as-wav | sox … | smpl from-wav` splices the entire Unix DSP
   world into the middle of a pipe without losing lineage.
 
@@ -64,8 +66,8 @@ uv tool install git+https://github.com/chronick/smpl#subdirectory=packages/smpl 
   --with git+https://github.com/chronick/smpl#subdirectory=packages/smplstream \
   --with git+https://github.com/chronick/smpl#subdirectory=packages/smpl-analysis
 
-# heavy generators install separately, into their OWN isolated venvs (two-tier):
-uv tool install git+https://github.com/chronick/smpl#subdirectory=tools/smpl-gen
+# heavy tools install separately, into their OWN isolated venvs (two-tier):
+uv tool install git+https://github.com/chronick/smpl#subdirectory=tools/smpl-stems
 ```
 
 `ffmpeg` and `sox` on PATH unlock the raw-WAV bridge and `convert`. The core cold-starts
@@ -121,17 +123,35 @@ composes the pipe, resolves only what's needed, and reads back the report.
 | `read` / `write` | ingest audio → frames; materialize a selected frame → file |
 | `resolve` / `gc` | hash/id/role → CAS path; collect unreferenced blobs |
 | `as-wav` / `from-wav` | the raw-WAV bridge to `sox`/`ffmpeg` (lineage-preserving) |
-| `cat` / `describe` | describe-as-filter: passthrough + features + caption + image |
+| `cat` / `describe` / `describe-all` | describe-as-filter: passthrough + features + caption + image; `-all` aggregates the whole light tier |
 | `loudness` | integrated LUFS, true-peak dBTP, short-term LUFS |
 | `spectral` | spectral-shape family (flatness/crest/spread/rolloff/contrast/slope) |
 | `qc` | clipping, phase/mono, DC, SNR, clicks/gaps, lossy-origin cutoff |
 | `spectrogram` | annotated mel / CQT / HPSS spectrograms + waveform (PNG) |
 | `convert` | format / sample-rate / bit-depth conversion (new frame, own hash) |
 | `gain` `normalize` `limit` | level management: dB gain (pure), LUFS-normalize (+ true-peak ceiling), true-peak limit |
+| `maximize` `compress` | look-ahead brickwall limiting (drive + cap); downward compression |
 | `filter` `eq` `env` `fx` `slice` `select` | the edit filters + stream selection |
+| `automate` `stereoize` `widen` `spectral-match` | parameter motion over time; mono→wide; M-S width; EQ toward a reference |
 | `pattern` | step-grid drum-loop DSL → smplmix session (velocity / pitch / swing / nudge) |
 | `view` | the multimodal LLM/human report |
 | `gen` · `cloud` · `transcribe` · `stems` · `embed` · `synth` | PATH-discovered heavy tools (own venvs) |
+
+## Install the agent skills
+
+Two agent skills ship in `skills/`, installable with the open-source `skills` CLI
+so Codex and Claude Code share one managed copy:
+
+```bash
+npx skills add chronick/smpl --global --agent codex claude-code --yes
+```
+
+- **`smpl-dissect`** — isolate a stem, slice, or filtered band and describe exactly
+  that piece, numbers cited with units and the spectrogram in front of the model.
+- **`smpl-audit`** — the measured bounce check: loudness, true peak, clipping, DC,
+  noise, and lossy-origin forensics reported as a verdict.
+
+Both expect the `smpl` CLI on PATH and say so when it is missing.
 
 ## Architecture
 

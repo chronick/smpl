@@ -1,0 +1,19 @@
+{
+ "kind": "audio",
+ "hash": "blake3:432c046f870dfb38cda28552dc94013f383c26207af1d757ada0564e8b81fbe4",
+ "media": "audio/wav",
+ "meta": {
+  "sr": 44100,
+  "ch": 1,
+  "dur": 4.0,
+  "fmt": "WAV"
+ },
+ "role": "source",
+ "op": "read",
+ "op_version": "read@1",
+ "params": {
+  "source": "loop.wav"
+ },
+ "v": 1,
+ "id": "blake3:ec7431cbee8874db9d667ef9d546705e2d6424a63b9b4fefefff1545234919cc"
+}

@@ -3,120 +3,572 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>smpl — composable, content-addressed audio analysis you pipe like jq</title>
-<meta name="description" content="A pipe-based audio-analysis toolchain. Self-describing NDJSON frames over a content-addressed store, with canonical-PCM hashing and free pipeline memoization. Built for LLMs and humans." />
-<link rel="preconnect" href="https://fonts.googleapis.com" />
+<title>smpl · an audio-analysis toolchain you pipe like jq</title>
+<meta name="description" content="smpl is a composable, content-addressed audio toolchain: NDJSON frames on the wire, real files in a CAS, measurements a person or an agent can cite. Part of the LEMON house." />
 <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-<header class="hero">
-  <div class="wrap">
-    <h1>smpl</h1>
-    <p class="tag">A composable, content-addressed audio-analysis toolchain you pipe like <code>jq</code>.</p>
-    <p class="sub">Pipe self-describing <strong>frames</strong> that reference content-addressed bytes —
-      never the heavy bytes themselves. That one choice buys multi-payload streams, free
-      pipeline-wide memoization, and lazy evaluation.</p>
-    <pre class="hero-pipe"><span class="c">$</span> smpl read kick.wav <span class="p">|</span> smpl stems <span class="p">|</span> smpl select <span class="f">--role</span> stem:drums <span class="bs">\</span>
+
+<div class="wrap">
+  <header class="site-head">
+    <a class="brand" href="#"><b>smpl</b> · part of LEMON</a>
+    <nav class="site-nav">
+      <a href="#examples">examples</a>
+      <a href="#tools">tools</a>
+      <a href="#agents">agents</a>
+      <a href="#protocol">protocol</a>
+      <a href="#install">install</a>
+      <a href="https://github.com/chronick/smpl">GitHub</a>
+    </nav>
+  </header>
+
+  <section class="hero">
+    <h1>smpl<span class="cursor"></span></h1>
+    <p class="tag">An audio-analysis toolchain you pipe like <code>jq</code>.</p>
+    <p class="sub">Each stage passes along a small self-describing record that
+      points at the audio, so a pipe can split a sample apart, reshape one
+      piece, and hand back measurements with units. Nothing exotic underneath:
+      one line of JSON per step, ordinary audio files on disk, and standard
+      tools like <code>sox</code> and <code>ffmpeg</code> plug straight
+      in.</p>
+
+<pre><span class="c">$</span> smpl read kick.wav <span class="p">|</span> smpl stems <span class="p">|</span> smpl select <span class="f">--role</span> stem:drums <span class="bs">\</span>
     <span class="p">|</span> smpl filter <span class="f">--hp</span> 200 <span class="p">|</span> smpl env <span class="f">--pluck</span> <span class="p">|</span> smpl describe <span class="p">|</span> smpl view</pre>
-    <p class="caption">Isolate <em>one subcomponent</em> of a sample and get back a rich multimodal
-      report — text tables <strong>+ annotated spectrograms + features + embeddings</strong> — for
-      exactly that piece, not the whole file.</p>
+    <p class="translate">In plain words: load <b>kick.wav</b>, split it into
+      stems, keep the drums, cut everything below 200 Hz, tighten the volume
+      envelope, measure what is left, and print the report. Each step is its
+      own small command; the results flow left to right.</p>
+
     <div class="cta">
-      <a class="btn" href="https://github.com/chronick/smpl">GitHub</a>
+      <a class="btn" href="#install">Install</a>
+      <a class="btn ghost" href="https://github.com/chronick/smpl">GitHub</a>
       <a class="btn ghost" href="https://github.com/chronick/smpl/blob/main/spec.md">The protocol</a>
     </div>
-  </div>
-</header>
 
-<main class="wrap">
+    <p class="house">Part of the LEMON house ·
+      <a href="https://lemon-agent.dev">lemon-agent.dev</a> teaches the agent method ·
+      <a href="https://lemon.audio">lemon.audio</a> is the music side of the house</p>
 
-  <section class="visual">
-    <h2>See a subcomponent, not the file</h2>
-    <div class="vrow">
-      <figure>
-        <img src="assets/waveform.png" alt="input waveform" loading="lazy" />
-        <figcaption>input — a kick sample (waveform)</figcaption>
-      </figure>
-      <div class="arrow">→</div>
-      <figure>
-        <img src="assets/spectrogram.png" alt="annotated mel spectrogram of the isolated drum bus" loading="lazy" />
-        <figcaption>output — annotated mel spectrogram of the isolated drum bus</figcaption>
-      </figure>
-    </div>
-  </section>
-
-  <section class="split">
-    <div>
-      <h3>For LLMs</h3>
-      <p><code>smpl view</code> emits a multimodal report for whatever you isolated: feature tables
-        with units, <code>marker</code> tracks tied to musical time, and <strong>actual spectrogram
-        images</strong> a model can open and describe. The deterministic tier measures; the model
-        interprets. <em>If it doesn't need reasoning, it shouldn't call a model.</em></p>
-      <pre><span class="c">$</span> smpl read x.wav <span class="p">|</span> smpl qc <span class="p">|</span> smpl spectrogram <span class="p">|</span> smpl view
-<span class="o"># a lossy origin shows as a brickwall low-pass in the spectrogram</span></pre>
-    </div>
-    <div>
-      <h3>For humans</h3>
-      <p>Every seam is a boring Unix citizen. NDJSON on the wire, so <code>jq</code> works. Real file
-        paths for heavy bytes, so <code>sox</code> and <code>ffmpeg</code> work. Content-addressed and
-        memoized, so re-running a pipe is nearly free.</p>
-      <pre><span class="c">$</span> smpl read master.wav <span class="p">|</span> smpl loudness <span class="bs">\</span>
-    <span class="p">|</span> jq <span class="s">'select(.kind=="feature").data'</span></pre>
-    </div>
+    <figure class="hero-wf">
+      <img src="assets/wf-loop.svg" alt="Waveform of the demo loop: eight kick hits with hats and an offbeat bassline over four seconds" />
+      <figcaption>the demo loop this page keeps reusing · 4.0 s · 44.1 kHz · every number below was measured, not typed</figcaption>
+    </figure>
   </section>
 
   <section>
-    <h2>The frame</h2>
-    <p>One frame per line of UTF-8 NDJSON. Self-describing; payload by <code>hash</code> (in the CAS)
-      or inline <code>data</code>.</p>
-    <pre class="frame">{<span class="k">"v"</span>:1, <span class="k">"kind"</span>:<span class="s">"audio"</span>, <span class="k">"id"</span>:<span class="s">"blake3:9af2…"</span>, <span class="k">"role"</span>:<span class="s">"stem:drums"</span>,
- <span class="k">"of"</span>:<span class="s">"blake3:1c0a…"</span>, <span class="k">"op"</span>:<span class="s">"demucs"</span>, <span class="k">"hash"</span>:<span class="s">"blake3:c3d4…"</span>,
- <span class="k">"media"</span>:<span class="s">"audio/wav"</span>, <span class="k">"meta"</span>:{<span class="k">"sr"</span>:48000, <span class="k">"dur"</span>:8.0, <span class="k">"ch"</span>:2}}</pre>
-    <p>Kinds: <code>audio · image · text · vector · marker · feature · midi · error</code>. The full
-      normative contract — canonical-PCM hashing, the memo key, CAS integrity, units & timebase —
-      is in <a href="https://github.com/chronick/smpl/blob/main/spec.md">spec.md</a>, versioned like an API.</p>
+    <h2>Three ideas, no magic</h2>
+    <div class="cards">
+      <div class="card">
+        <h3>Frames, not bytes</h3>
+        <p>One JSON object per line flows between stages: what the audio is,
+          where it came from, what has been measured so far. The heavy bytes
+          stay on disk. <code>jq</code>, <code>grep</code>, and a text editor
+          all work on the stream.</p>
+      </div>
+      <div class="card">
+        <h3>Content-addressed audio</h3>
+        <p>Audio lives in a local store keyed by a hash of the decoded PCM,
+          not the file bytes. Two identical stems share one blob, and any
+          frame can be turned back into a file path with
+          <code>smpl resolve</code>.</p>
+      </div>
+      <div class="card">
+        <h3>Ops you can trust</h3>
+        <p>Every operation records its name, version, parameters, and inputs
+          on the frame it emits. Results carry their own lineage, identical
+          audio shares one address in the store, and any run can be
+          reproduced exactly.</p>
+      </div>
+    </div>
   </section>
 
-  <section>
-    <h2>The raw-WAV bridge</h2>
-    <p>Drop to raw WAV to reach any Unix DSP tool mid-pipe, without losing lineage or cache:</p>
-    <pre><span class="c">$</span> smpl read x.wav <span class="p">|</span> smpl as-wav <span class="p">|</span> sox - -t wav - reverb 50 <span class="bs">\</span>
+  <section id="examples">
+    <h2>Before and after, with receipts</h2>
+    <p class="lead">Five real runs on generated test audio. The commands shown
+      are the commands that made the pictures and the numbers, and the
+      players hold the actual sound that went in and came out.</p>
+
+    <div class="pipe-key">
+      <p>Never used a terminal pipeline? Three symbols carry everything on
+        this page. A line starting with
+        <span class="glyph">$</span> is a command you paste into a terminal
+        (the $ itself is not typed). The
+        <span class="glyph">|</span> is a pipe: it feeds the output of the
+        command on its left into the command on its right, so a chain reads
+        left to right like an assembly line. A trailing
+        <span class="glyph">\</span> only continues a long command onto the
+        next line.</p>
+    </div>
+
+    <div class="demo">
+      <p class="demo-title">Level a quiet bounce</p>
+      <p class="plain">The loop was exported too quiet. One command raises it
+        to a standard streaming loudness, with a safety ceiling so no peak
+        distorts on the way up.</p>
+<pre><span class="c">$</span> smpl read loop.wav <span class="p">|</span> smpl normalize <span class="f">--lufs</span> -14 <span class="p">|</span> smpl write leveled.wav</pre>
+      <p class="translate"><b>read</b> loads the file, <b>normalize</b>
+        raises it toward -14 LUFS without letting any peak past the ceiling,
+        and <b>write</b> saves the result as a new file.</p>
+      <div class="pair">
+        <div class="pane">
+          <span class="chip">IN</span>
+          <div class="wf"><img src="assets/wf-loop.svg" alt="Input waveform: the loop at low level, peaks well under full scale" /></div>
+          <audio controls preload="none" src="assets/loop.wav"></audio>
+          <p class="nums">integrated <b>-20.79 LUFS</b> · true peak <b>-6.71 dBTP</b></p>
+        </div>
+        <div class="pane">
+          <span class="chip out">OUT</span>
+          <div class="wf"><img src="assets/wf-leveled.svg" alt="Output waveform: the same loop visibly louder after normalization" /></div>
+          <audio controls preload="none" src="assets/leveled.wav"></audio>
+          <p class="nums">integrated <b>-15.08 LUFS</b> · true peak <span class="hot">-1.00 dBTP</span></p>
+        </div>
+      </div>
+      <p class="demo-note"><strong>The honest part:</strong> the target was
+        -14 LUFS, and the result is -15.08. Reaching -14 would have pushed the
+        true peak past the default -1 dBTP ceiling, so the ceiling won and the
+        output sits at exactly -1.00 dBTP. The tool tells you what it did
+        instead of pretending it hit the number.</p>
+    </div>
+
+    <div class="demo">
+      <p class="demo-title">Reshape a pad into a pluck</p>
+      <p class="plain">A sustained pad goes in; a plucked version comes out.
+        Only the loudness contour changes. The tone underneath stays the
+        same, which is why the after still sounds like the same chord.</p>
+<pre><span class="c">$</span> smpl read pad.wav <span class="p">|</span> smpl env <span class="f">--pluck</span> <span class="f">--release</span> 0.6 <span class="p">|</span> smpl write pluck.wav</pre>
+      <p class="translate"><b>read</b> loads the pad, <b>env</b> reshapes its
+        volume over time (a fast attack, then a 0.6 second decay), and
+        <b>write</b> saves it.</p>
+      <div class="pair">
+        <div class="pane">
+          <span class="chip">IN</span>
+          <div class="wf"><img src="assets/wf-pad.svg" alt="Input waveform: a sustained pad holding steady level for three seconds" /></div>
+          <audio controls preload="none" src="assets/pad.wav"></audio>
+          <p class="nums">a sustained chord, level held for 3 s</p>
+        </div>
+        <div class="pane">
+          <span class="chip out">OUT</span>
+          <div class="wf"><img src="assets/wf-pluck.svg" alt="Output waveform: the same pad with a fast attack and exponential decay" /></div>
+          <audio controls preload="none" src="assets/pluck.wav"></audio>
+          <p class="nums">same audio under a pluck envelope, 0.6 s decay</p>
+        </div>
+      </div>
+      <p class="demo-note">The amplitude envelope family (<code>env</code>)
+        also does fades and gates. Like every edit stage it emits a new frame
+        with role <code>source.wet</code>; the dry frame stays in the stream
+        untouched.</p>
+    </div>
+
+    <div class="demo">
+      <p class="demo-title">Strip the low end</p>
+      <p class="plain">Everything below 200 Hz goes. The kick's body and the
+        bass fundamentals drop out, and what is left is the top of the kit:
+        the click, the hats, the harmonics.</p>
+<pre><span class="c">$</span> smpl read loop.wav <span class="p">|</span> smpl filter <span class="f">--hp</span> 200 <span class="p">|</span> smpl write thin.wav</pre>
+      <p class="translate"><b>read</b> loads the loop, <b>filter</b> keeps
+        only what sits above 200 Hz (hp is short for high-pass), and
+        <b>write</b> saves the thin version.</p>
+      <div class="pair">
+        <div class="pane">
+          <span class="chip">IN</span>
+          <div class="wf"><img src="assets/wf-loop.svg" alt="Input waveform: full loop with heavy kick and bass energy" /></div>
+          <audio controls preload="none" src="assets/loop.wav"></audio>
+          <p class="nums">kick and bass carry most of the level</p>
+        </div>
+        <div class="pane">
+          <span class="chip out">OUT</span>
+          <div class="wf"><img src="assets/wf-thin.svg" alt="Output waveform: the same loop much thinner after a 200 Hz high-pass" /></div>
+          <audio controls preload="none" src="assets/thin.wav"></audio>
+          <p class="nums">high-passed at 200 Hz: hats and bass harmonics remain</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="demo">
+      <p class="demo-title">Find the hits</p>
+      <p class="plain">Nothing is changed here. The tool listens for the
+        start of each drum hit and writes the times down as data you can use:
+        for chopping a loop into slices, or for lining edits up with the
+        hits.</p>
+<pre><span class="c">$</span> smpl read loop.wav <span class="p">|</span> smpl slice</pre>
+      <p class="translate"><b>read</b> loads the loop and <b>slice</b>
+        detects where each hit begins, emitting the list of times alongside
+        the audio.</p>
+      <div class="pane">
+        <div class="wf"><img src="assets/wf-slice.svg" alt="The loop waveform with 18 dashed onset marker lines drawn where hits were detected" /></div>
+        <p class="wf-cap">18 onsets detected; the amber dashes are the marker frame drawn over the input</p>
+      </div>
+      <p class="demo-note">Markers are frames too: <code>slice</code> emits a
+        <code>marker</code> frame with a timestamp per onset
+        (<code>0.244&nbsp;s, 0.488&nbsp;s, 0.743&nbsp;s, …</code>), and can
+        materialize each slice as its own audio frame. Downstream stages can
+        select one hit by role, the way the command at the top of this page
+        picks out the drums.</p>
+    </div>
+
+    <div class="demo">
+      <p class="demo-title">Catch a WAV that used to be an MP3</p>
+      <p class="plain">Someone hands you a WAV file. Was it recorded that
+        way, or was it once a small MP3 dressed up in a WAV container? MP3
+        encoders throw away the highest frequencies, and that scar never
+        heals. The tools answer with a picture and a number.</p>
+<pre><span class="c">$</span> smpl read suspect.wav <span class="p">|</span> smpl qc <span class="p">|</span> smpl spectrogram</pre>
+      <p class="translate"><b>read</b> loads the file, <b>qc</b> measures
+        where the high frequencies stop, and <b>spectrogram</b> draws the
+        picture (time runs left to right, low notes at the bottom, highs at
+        the top). Add <code>| smpl view</code> on the end for the full
+        report.</p>
+      <div class="pair">
+        <div class="pane">
+          <span class="chip">CLEAN</span>
+          <figure class="readout">
+            <img src="assets/spec-bright.png" alt="Mel spectrogram of the clean recording: energy reaches the top of the frequency range" />
+            <figcaption>energy all the way up · cutoff 22,018 Hz ≈ Nyquist · lossy confidence 0.0</figcaption>
+          </figure>
+          <audio controls preload="none" src="assets/bright.wav"></audio>
+        </div>
+        <div class="pane">
+          <span class="chip out">SUSPECT</span>
+          <figure class="readout">
+            <img src="assets/spec-lossy.png" alt="Mel spectrogram of the round-tripped file: a hard black band caps the spectrum above 16 kHz" />
+            <figcaption>a hard ceiling appears · cutoff 16,462 Hz · lossy confidence 0.856</figcaption>
+          </figure>
+          <audio controls preload="none" src="assets/lossy.wav"></audio>
+        </div>
+      </div>
+      <p class="demo-note">The suspect file is the clean one after a round
+        trip through a 64 kbps MP3. The encoder's low-pass shows up as the
+        black cap on the spectrogram, and <code>qc</code> reports it as
+        numbers: <strong>measured cutoff 16,462 Hz against an expected
+        22,050 Hz</strong>, confidence 0.856. These spectrograms are smpl's
+        own output images, copied straight out of the store.</p>
+    </div>
+
+    <p class="receipt">Every number and picture in this section comes from
+      <a href="https://github.com/chronick/smpl/blob/main/docs/make_assets.sh">docs/make_assets.sh</a>,
+      which generates the audio, runs the pipes shown, and saves the
+      results (plus a <a href="assets/numbers.json">numbers.json</a> receipt).
+      When the tools change, re-running that script either regenerates the
+      page cleanly or visibly breaks it.</p>
+  </section>
+
+  <section id="anatomy">
+    <h2>One pipe, step by step</h2>
+    <p>The same mechanics as every example above, slowed all the way down.
+      One fixed pipe, four stages; each stage does its one job and passes
+      everything it received along, plus what it added:</p>
+<pre><span class="c">$</span> smpl read loop.wav <span class="p">|</span> smpl loudness <span class="p">|</span> smpl qc <span class="p">|</span> smpl view</pre>
+    <div class="anatomy">
+      <div class="stage">
+        <code>smpl read loop.wav</code>
+        <p>Loads the file into the local store and describes it. No audio
+          flows in the pipe itself, just the description.</p>
+      </div>
+      <div class="link"><span class="glyph" aria-hidden="true"></span>
+        <span class="carry">1 frame: the audio</span></div>
+      <div class="stage">
+        <code>smpl loudness</code>
+        <p>Measures loudness. The audio frame passes through untouched; a
+          frame of numbers joins it.</p>
+      </div>
+      <div class="link"><span class="glyph" aria-hidden="true"></span>
+        <span class="carry">2 frames: + loudness numbers</span></div>
+      <div class="stage">
+        <code>smpl qc</code>
+        <p>Runs the health checks on the same stream, and marks where any
+          defects sit in time.</p>
+      </div>
+      <div class="link"><span class="glyph" aria-hidden="true"></span>
+        <span class="carry">4 frames: + QC numbers, defect markers</span></div>
+      <div class="stage">
+        <code>smpl view</code>
+        <p>Reads everything that accumulated and renders one report, every
+          number with its source.</p>
+      </div>
+    </div>
+    <p class="translate">Nothing here re-opened the audio file or re-ran an
+      earlier step. Each stage saw everything the previous stages knew,
+      because the stream carries the knowledge forward. That is the whole
+      trick, and every pipe on this page is this same picture with different
+      stages.</p>
+  </section>
+
+  <section id="chains">
+    <h2>Pipes compose</h2>
+    <p>The point of the pipe design is that stages combine in ways nobody
+      planned. Three examples of what that buys:</p>
+
+    <div class="chain">
+      <h3>Measure, then read the stream like any other stream</h3>
+<pre><span class="c">$</span> smpl read loop.wav <span class="p">|</span> smpl loudness <span class="p">|</span> jq <span class="s">'select(.kind=="feature").data'</span>
+<span class="o">{</span>
+<span class="o">  "loudness.integrated_lufs": -20.79,</span>
+<span class="o">  "loudness.true_peak_dbtp": -6.71,</span>
+<span class="o">  "loudness.max_short_term_lufs": -20.71</span>
+<span class="o">}</span></pre>
+      <p>Ask for loudness, then pluck the answer out of the stream with
+        <code>jq</code>, the standard command-line JSON tool. No parser, no
+        export step: measurements are already plain JSON, one object per
+        line.</p>
+    </div>
+
+    <div class="chain">
+      <h3>Splice sox or ffmpeg into the middle</h3>
+<pre><span class="c">$</span> smpl read x.wav <span class="p">|</span> smpl as-wav <span class="p">|</span> sox - -t wav - reverb 50 <span class="bs">\</span>
     <span class="p">|</span> smpl from-wav <span class="f">--role</span> x.wet <span class="f">--derives-from</span> source <span class="p">|</span> smpl describe</pre>
-  </section>
-
-  <section>
-    <h2>Install</h2>
-    <pre><span class="o"># light core — one isolated install</span>
-<span class="c">$</span> uv tool install git+https://github.com/chronick/smpl<span class="o">#subdirectory=packages/smpl</span> <span class="bs">\</span>
-    <span class="f">--with</span> git+https://github.com/chronick/smpl<span class="o">#subdirectory=packages/smplstream</span> <span class="bs">\</span>
-    <span class="f">--with</span> git+https://github.com/chronick/smpl<span class="o">#subdirectory=packages/smpl-analysis</span>
-
-<span class="o"># heavy generators install into their OWN venvs (two-tier — torch never touches the core)</span>
-<span class="c">$</span> uv tool install git+https://github.com/chronick/smpl<span class="o">#subdirectory=tools/smpl-gen</span></pre>
-  </section>
-
-  <section>
-    <h2>The tools</h2>
-    <div class="grid" id="tools-grid">
-      <div><code>read</code> / <code>write</code><span>ingest → frames; materialize a frame → file</span></div>
-      <div><code>resolve</code> / <code>gc</code><span>hash/id/role → CAS path; collect unreferenced blobs</span></div>
-      <div><code>as-wav</code> / <code>from-wav</code><span>the lineage-preserving sox/ffmpeg bridge</span></div>
-      <div><code>cat</code> / <code>describe</code><span>describe-as-filter: features + caption + image</span></div>
-      <div><code>loudness</code><span>integrated LUFS, true-peak dBTP, short-term LUFS</span></div>
-      <div><code>spectral</code><span>flatness / crest / spread / rolloff / contrast / slope</span></div>
-      <div><code>qc</code><span>clipping, phase/mono, DC, SNR, clicks, lossy-origin</span></div>
-      <div><code>spectrogram</code><span>annotated mel / CQT / HPSS + waveform (PNG)</span></div>
-      <div><code>convert</code><span>format / sample-rate / bit-depth (new frame, own hash)</span></div>
-      <div><code>filter eq env fx slice select</code><span>edit filters + stream selection</span></div>
-      <div><code>view</code><span>the multimodal LLM / human report</span></div>
-      <div><code>gen cloud transcribe stems embed synth</code><span>PATH-discovered heavy tools (own venvs)</span></div>
+      <p>Here <code>sox</code>, a classic audio tool from 1991, adds the
+        reverb. <code>as-wav</code> hands it plain audio, it does its thing,
+        and <code>from-wav</code> stores the result as a new frame that
+        still knows what it came from. Any tool that reads and writes WAV
+        through a pipe, sox and ffmpeg included, becomes an smpl stage this
+        way.</p>
     </div>
+
+    <div class="chain">
+      <h3>Isolate, reshape, then describe just that piece</h3>
+<pre><span class="c">$</span> smpl read kick.wav <span class="p">|</span> smpl stems <span class="p">|</span> smpl select <span class="f">--role</span> stem:drums <span class="bs">\</span>
+    <span class="p">|</span> smpl filter <span class="f">--hp</span> 200 <span class="p">|</span> smpl env <span class="f">--pluck</span> <span class="p">|</span> smpl describe <span class="p">|</span> smpl view</pre>
+      <p>The tail of the pipe sees the whole lineage: original, stems, the
+        filtered subcomponent. <code>describe</code> measures whatever is
+        selected, and <code>view</code> renders the report for exactly that
+        piece, not the whole file. (<code>stems</code> is a heavy tool with
+        its own install; see the tiers below.)</p>
+    </div>
+  </section>
+
+  <section id="tools">
+    <h2>The tools</h2>
+    <p>One <code>smpl</code> command, 47 built-in subcommands, each doing one
+      thing well. Nearly all of them read the stream in and pass the stream
+      along, so they can sit anywhere in a pipe; the exceptions are the
+      deliberate edges, like <code>as-wav</code> (raw audio out, for the
+      bridge) and <code>write</code> (a file, at the end). The highlights,
+      from <code>smpl --help</code>:</p>
+
+    <div class="tool-group">
+      <h3>Ingest and store</h3>
+      <div class="tools">
+        <div><code>read</code> / <code>write</code><span>file in, frames out; selected frame back to a file</span></div>
+        <div><code>resolve</code><span>hash, id, or role to a real file path</span></div>
+        <div><code>convert</code><span>format, sample rate, bit depth via ffmpeg</span></div>
+        <div><code>as-wav</code> / <code>from-wav</code><span>the raw-WAV bridge to sox and ffmpeg</span></div>
+        <div><code>gc</code><span>collect unreferenced blobs from the store</span></div>
+      </div>
+    </div>
+
+    <div class="tool-group">
+      <h3>Measure</h3>
+      <div class="tools">
+        <div><code>loudness</code><span>integrated LUFS, true peak dBTP, short-term LUFS</span></div>
+        <div><code>spectral</code><span>flatness, crest, spread, rolloff, contrast, slope</span></div>
+        <div><code>qc</code><span>clipping, phase, DC offset, SNR, lossy-origin cutoff</span></div>
+        <div><code>describe-all</code><span>the whole light tier in one stage, plus caption and image</span></div>
+      </div>
+    </div>
+
+    <div class="tool-group">
+      <h3>See and report</h3>
+      <div class="tools">
+        <div><code>spectrogram</code><span>mel, CQT, HPSS, and waveform renders as image frames</span></div>
+        <div><code>cat</code> / <code>describe</code><span>describe as a filter: passthrough plus features, caption, image</span></div>
+        <div><code>view</code><span>one markdown report over everything in the stream</span></div>
+      </div>
+    </div>
+
+    <div class="tool-group">
+      <h3>Shape</h3>
+      <div class="tools">
+        <div><code>gain</code> · <code>normalize</code> · <code>limit</code><span>dB gain, LUFS target with a true-peak ceiling, peak cap</span></div>
+        <div><code>maximize</code> · <code>compress</code><span>look-ahead brickwall drive; downward compression</span></div>
+        <div><code>eq</code> · <code>filter</code><span>peaking and shelf EQ; high, low, band pass</span></div>
+        <div><code>env</code> · <code>fx</code> · <code>automate</code><span>envelopes; sox reverb and delay; parameter motion over time</span></div>
+        <div><code>stereoize</code> · <code>widen</code><span>mono to wide, and M-S width with a mono-safe low end</span></div>
+        <div><code>spectral-match</code><span>EQ one sound toward a reference's balance</span></div>
+      </div>
+    </div>
+
+    <div class="tool-group">
+      <h3>Cut and pick</h3>
+      <div class="tools">
+        <div><code>slice</code><span>onset detection to marker frames, optionally sliced audio</span></div>
+        <div><code>select</code><span>filter the stream by role or kind</span></div>
+        <div><code>pattern</code><span>a step-grid drum-loop DSL with velocity, pitch, swing, nudge</span></div>
+      </div>
+    </div>
+
+    <div class="tool-group">
+      <h3>Heavy tier <span>· separate installs, found by name</span></h3>
+      <p class="dim" style="font-size:0.93rem; max-width:72ch;">Anything with
+        big machine-learning dependencies lives in its own isolated install,
+        so the core never pays for it at startup. <code>smpl stems</code>
+        simply hands off to <code>smpl-stems</code> if you have installed
+        it; if you have not, it stops and names the missing tool.</p>
+      <div class="tools">
+        <div><code>stems</code><span>source separation into drums, bass, vocals, other</span></div>
+        <div><code>transcribe</code><span>Whisper speech and lyrics with srt/lrc/vtt export</span></div>
+        <div><code>embed</code><span>MERT and CLAP embeddings plus a similarity index</span></div>
+        <div><code>gen</code> · <code>cloud</code><span>local and provider-API audio generation</span></div>
+        <div><code>synth</code><span>SuperCollider renders, offline</span></div>
+        <div><code>transcribe-midi</code> · <code>render-midi</code><span>audio to MIDI and MIDI to audio, offline</span></div>
+      </div>
+      <p class="dim" style="font-size:0.9rem; margin-top:0.8rem;">Not every
+        subcommand made this table; <code>crop</code>, <code>reverse</code>,
+        <code>stretch</code>, <code>pitch</code>, <code>stats</code>, and
+        friends are in <code>smpl --help</code>.</p>
+    </div>
+  </section>
+
+  <section id="agents">
+    <h2>Built for agents</h2>
+    <p class="lead">The design bet: the deterministic tier does the measuring,
+      the model does the interpreting. An agent should never guess a LUFS
+      value, and with smpl it never has to.</p>
+
+    <div class="split">
+      <div>
+        <h3>What the agent reads</h3>
+        <p><code>smpl view</code> renders the stream as a markdown report:
+          the measurements, with units on the keys that define them, markers
+          tied to time, and image frames it can open. These are rows from
+          the actual report for the demo loop (rows selected and two columns
+          dropped for width):</p>
+<pre class="report-excerpt"># smpl analysis report
+
+**13 frame(s):** 1× audio, 9× feature,
+1× image, 1× marker, 1× text
+
+| key | value | unit |
+|---|---|---|
+| loudness.integrated_lufs | -20.79 | LUFS |
+| loudness.true_peak_dbtp | -6.71 | dBTP |
+| lowlevel.spectral_flatness_db | -49.3421 (±22.5402) | dB |
+| lowlevel.spectral_rolloff | 5228.3865 (±7381.6941) |  |
+| qc.clipping.detected | false |  |
+| qc.dc_offset_dbfs | -68.9 | dBFS |
+| qc.lossy.confidence | 0.001 | 0–1 |
+| envelope.attack_ms_10_90 | 10.385 | ms |
+| envelope.sustain_ratio_150ms | 0.0203 | ratio |
+| movement.sidechain_db | 10.454 | dB |
+…</pre>
+      </div>
+      <div>
+        <h3>What the agent sees</h3>
+        <p>Image frames are real annotated figures. A model that can read
+          images can look at the spectrogram and say where the energy sits,
+          then cite the feature table for the numbers.</p>
+        <figure class="readout">
+          <img src="assets/spec-loop.png" alt="Annotated mel spectrogram of the demo loop as produced by smpl spectrogram: kick columns, bass energy at the bottom, axis labels and a dB colorbar" />
+          <figcaption>smpl spectrogram --kind mel · the demo loop · straight from the store</figcaption>
+        </figure>
+      </div>
+    </div>
+
+    <h3>Install the skills</h3>
+    <p>Two agent skills ship in this repo, in the same installable format the
+      rest of the LEMON house uses. They teach a coding agent when to reach
+      for which pipe and how to report what came back:</p>
+
+    <div class="copy-wrap">
+<pre><span class="c">$</span> npx skills add chronick/smpl <span class="f">--global</span> <span class="f">--agent</span> codex claude-code <span class="f">--yes</span></pre>
+      <button class="copy-btn" data-copy="npx skills add chronick/smpl --global --agent codex claude-code --yes">copy</button>
+    </div>
+
+    <div class="skill-cards">
+      <div class="card">
+        <span class="chip">smpl-dissect</span>
+        <p>The microscope. Isolate a stem, a slice, or a filtered band, then
+          describe exactly that piece with cited numbers and the spectrogram
+          in front of the model.</p>
+      </div>
+      <div class="card">
+        <span class="chip out">smpl-audit</span>
+        <p>The bounce check. Loudness, true peak, clipping, DC, noise, and
+          lossy-origin forensics, reported as a verdict where every claim
+          carries a measured value and its unit.</p>
+      </div>
+    </div>
+    <p class="dim" style="font-size:0.93rem;">Both skills expect the
+      <code>smpl</code> command to be installed, and say so plainly when it
+      is missing. The skill files are plain markdown in
+      <a href="https://github.com/chronick/smpl/tree/main/skills">skills/</a>;
+      read them before you install them.</p>
+  </section>
+
+  <section id="protocol">
+    <h2>The wire protocol</h2>
+    <p>A frame is one line of NDJSON that describes itself: what kind of
+      thing it is, which operation produced it, what it derives from, and
+      where its bytes live. This is the real first frame of the demo loop:</p>
+<pre>{
+ <span class="k">"kind"</span>: <span class="s">"audio"</span>,
+ <span class="k">"hash"</span>: <span class="s">"blake3:432c046f870dfb38cda28552dc94013f38…"</span>,
+ <span class="k">"media"</span>: <span class="s">"audio/wav"</span>,
+ <span class="k">"meta"</span>: { <span class="k">"sr"</span>: 44100, <span class="k">"ch"</span>: 1, <span class="k">"dur"</span>: 4.0, <span class="k">"fmt"</span>: <span class="s">"WAV"</span> },
+ <span class="k">"role"</span>: <span class="s">"source"</span>,
+ <span class="k">"op"</span>: <span class="s">"read"</span>,
+ <span class="k">"op_version"</span>: <span class="s">"read@1"</span>,
+ <span class="k">"params"</span>: { <span class="k">"source"</span>: <span class="s">"loop.wav"</span> },
+ <span class="k">"v"</span>: 1,
+ <span class="k">"id"</span>: <span class="s">"blake3:ec7431cbee8874db9d667ef9d546705e…"</span>
+}</pre>
+    <p>Eight kinds cover the stream: <code>audio</code>, <code>image</code>,
+      <code>text</code>, <code>vector</code>, <code>marker</code>,
+      <code>feature</code>, <code>midi</code>, <code>error</code>. Hashing is
+      defined over the canonical decoded PCM, so the same sound has the same
+      address no matter which container it arrived in. The full contract,
+      including the memo key and store integrity rules, is
+      <a href="https://github.com/chronick/smpl/blob/main/spec.md">spec.md</a>,
+      versioned like an API.</p>
+  </section>
+
+  <section id="install">
+    <h2>Install</h2>
+    <p>The core is light on purpose: it does not load big machine-learning
+      libraries just to start up; the heavy pieces load only inside the
+      subcommands that use them. Installing needs
+      <a href="https://docs.astral.sh/uv/">uv</a>, the standard Python tool
+      manager.</p>
+    <div class="copy-wrap">
+<pre><span class="o"># the light core, one isolated install</span>
+<span class="c">$</span> uv tool install git+https://github.com/chronick/smpl#subdirectory=packages/smpl <span class="bs">\</span>
+    <span class="f">--with</span> git+https://github.com/chronick/smpl#subdirectory=packages/smplstream <span class="bs">\</span>
+    <span class="f">--with</span> git+https://github.com/chronick/smpl#subdirectory=packages/smpl-analysis</pre>
+      <button class="copy-btn" data-copy="uv tool install git+https://github.com/chronick/smpl#subdirectory=packages/smpl --with git+https://github.com/chronick/smpl#subdirectory=packages/smplstream --with git+https://github.com/chronick/smpl#subdirectory=packages/smpl-analysis">copy</button>
+    </div>
+<pre><span class="o"># heavy tools install separately, each into its own venv</span>
+<span class="c">$</span> uv tool install git+https://github.com/chronick/smpl#subdirectory=tools/smpl-stems</pre>
+    <p>Having <code>ffmpeg</code> and <code>sox</code> installed unlocks
+      <code>convert</code>, <code>fx</code>, and the raw-WAV bridge. MIT
+      licensed.</p>
   </section>
 
   <footer>
     <p>MIT · <a href="https://github.com/chronick/smpl">github.com/chronick/smpl</a> ·
-      built around a content-addressed frame protocol</p>
+      <a href="https://github.com/chronick/smpl/blob/main/spec.md">spec.md</a></p>
+    <p>Part of the LEMON house:
+      <a href="https://lemon-agent.dev">lemon-agent.dev</a>, field guides for
+      working with agents · <a href="https://lemon.audio">lemon.audio</a>,
+      the music project these tools grew out of.</p>
+    <p>Every number and spectrogram on this page is smpl's own output; the
+      waveform drawings are page graphics of the real audio files. All of it
+      regenerates from
+      <a href="https://github.com/chronick/smpl/blob/main/docs/make_assets.sh">docs/make_assets.sh</a>.</p>
   </footer>
-</main>
+</div>
+
+<script>
+document.querySelectorAll('.copy-btn').forEach(function (btn) {
+  btn.addEventListener('click', function () {
+    navigator.clipboard.writeText(btn.dataset.copy).then(function () {
+      btn.textContent = 'copied';
+      btn.classList.add('done');
+      setTimeout(function () {
+        btn.textContent = 'copy';
+        btn.classList.remove('done');
+      }, 1600);
+    });
+  });
+});
+</script>
 </body>
 </html>
