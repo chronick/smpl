@@ -13,6 +13,7 @@
   <header class="site-head">
     <a class="brand" href="#"><b>smpl</b> · part of LEMON</a>
     <nav class="site-nav">
+      <a href="#quickstart">start</a>
       <a href="#examples">examples</a>
       <a href="#tools">tools</a>
       <a href="#agents">agents</a>
@@ -32,15 +33,13 @@
       tools like <code>sox</code> and <code>ffmpeg</code> plug straight
       in.</p>
 
-<pre><span class="c">$</span> smpl read kick.wav <span class="p">|</span> smpl stems <span class="p">|</span> smpl select <span class="f">--role</span> stem:drums <span class="bs">\</span>
-    <span class="p">|</span> smpl filter <span class="f">--hp</span> 200 <span class="p">|</span> smpl env <span class="f">--pluck</span> <span class="p">|</span> smpl describe <span class="p">|</span> smpl view</pre>
-    <p class="translate">In plain words: load <b>kick.wav</b>, split it into
-      stems, keep the drums, cut everything below 200 Hz, tighten the volume
-      envelope, measure what is left, and print the report. Each step is its
-      own small command; the results flow left to right.</p>
+<pre><span class="c">$</span> smpl read loop.wav <span class="p">|</span> smpl loudness <span class="p">|</span> smpl view &gt; /dev/null</pre>
+    <p class="translate">In plain words: load <b>loop.wav</b>, measure its
+      loudness, and print a readable report. This whole pipe ships in the
+      light core: no model download, separate heavy tool, or API key needed.</p>
 
     <div class="cta">
-      <a class="btn" href="#install">Install</a>
+      <a class="btn" href="#quickstart">Start here</a>
       <a class="btn ghost" href="https://github.com/chronick/smpl">GitHub</a>
       <a class="btn ghost" href="https://github.com/chronick/smpl/blob/main/spec.md">The protocol</a>
     </div>
@@ -53,6 +52,58 @@
       <img src="assets/wf-loop.svg" alt="Waveform of the demo loop: eight kick hits with hats and an offbeat bassline over four seconds" />
       <figcaption>the demo loop this page keeps reusing · 4.0 s · 44.1 kHz · every number below was measured, not typed</figcaption>
     </figure>
+  </section>
+
+  <section id="quickstart" class="quickstart">
+    <h2>Your first measured loop</h2>
+    <p class="lead">Start from an empty terminal and use the demo audio
+      shipped with this site. The path below installs only the core and ends
+      with a report you can check against known output.</p>
+
+    <div class="start-step">
+      <p class="start-label"><span>1</span> Install the light core</p>
+      <p>Install <a href="https://docs.astral.sh/uv/">uv</a> first if the
+        <code>uv</code> command is not already available, then run:</p>
+      <div class="copy-wrap">
+<pre><span class="c">$</span> uv tool install git+https://github.com/chronick/smpl#subdirectory=packages/smpl <span class="bs">\</span>
+    <span class="f">--with</span> git+https://github.com/chronick/smpl#subdirectory=packages/smplstream <span class="bs">\</span>
+    <span class="f">--with</span> git+https://github.com/chronick/smpl#subdirectory=packages/smpl-analysis</pre>
+        <button class="copy-btn" data-copy="uv tool install git+https://github.com/chronick/smpl#subdirectory=packages/smpl --with git+https://github.com/chronick/smpl#subdirectory=packages/smplstream --with git+https://github.com/chronick/smpl#subdirectory=packages/smpl-analysis">copy</button>
+      </div>
+    </div>
+
+    <div class="start-step">
+      <p class="start-label"><span>2</span> Download the shipped loop</p>
+      <p>This is the same four-second WAV used by the players and measured
+        examples on this page.</p>
+      <div class="copy-wrap">
+<pre><span class="c">$</span> curl <span class="f">-LO</span> https://chronick.github.io/smpl/assets/loop.wav</pre>
+        <button class="copy-btn" data-copy="curl -LO https://chronick.github.io/smpl/assets/loop.wav">copy</button>
+      </div>
+    </div>
+
+    <div class="start-step">
+      <p class="start-label"><span>3</span> Run the core-only pipe</p>
+      <p><code>view</code> writes the readable report to the terminal; the
+        redirect hides the NDJSON frames that remain available on stdout for
+        another pipe.</p>
+      <div class="copy-wrap">
+<pre><span class="c">$</span> smpl read loop.wav <span class="p">|</span> smpl loudness <span class="p">|</span> smpl view &gt; /dev/null</pre>
+        <button class="copy-btn" data-copy="smpl read loop.wav | smpl loudness | smpl view > /dev/null">copy</button>
+      </div>
+    </div>
+
+    <div class="expected">
+      <span class="chip out">EXPECTED</span>
+      <p>The terminal prints a Markdown report. In its feature table, look
+        for integrated loudness around <strong>-20.79 LUFS</strong> and true
+        peak around <strong>-6.71 dBTP</strong>:</p>
+<pre><span class="o">| `loudness.integrated_lufs` | -20.79 | LUFS | loudness | loudness |</span>
+<span class="o">| `loudness.true_peak_dbtp` | -6.71 | dBTP | loudness | loudness |</span></pre>
+      <p class="dim">Small last-decimal differences across platforms are
+        fine; a report with those two measured rows means the install and
+        first pipe worked.</p>
+    </div>
   </section>
 
   <section>

@@ -179,6 +179,51 @@ pre .bs { color: var(--dim); }              /* line continuations */
   padding: 0.3rem 0.2rem 0.4rem;
 }
 
+/* ---------------------------------------------------------- quick start --- */
+
+section.quickstart {
+  margin-top: 2.4rem;
+  padding: 1.3rem 1.35rem 1.4rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+}
+.quickstart h2 { margin-bottom: 0.45rem; }
+.quickstart .lead { color: var(--dim); margin-bottom: 0; }
+.start-step { padding-top: 1.15rem; }
+.start-step + .start-step {
+  margin-top: 1.1rem;
+  border-top: 1px solid var(--border);
+}
+.start-step > p { max-width: 76ch; }
+.start-label {
+  font-family: var(--mono);
+  font-weight: 700;
+  color: #eef1e6;
+  margin-bottom: 0.35rem;
+}
+.start-label span {
+  display: inline-grid;
+  place-items: center;
+  width: 1.45rem;
+  height: 1.45rem;
+  margin-right: 0.35rem;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--chip-ink);
+  font-size: 0.78rem;
+}
+.start-step .copy-wrap { margin-top: 0.65rem; }
+.expected {
+  margin-top: 1.2rem;
+  padding: 0.9rem 1rem 0.95rem;
+  border-left: 3px solid var(--amber);
+  background: var(--amber-soft);
+}
+.expected p { max-width: 76ch; }
+.expected pre { margin: 0.65rem 0; background: var(--bg); }
+.expected .chip { margin-bottom: 0.35rem; }
+
 /* -------------------------------------------------------------- sections -- */
 
 section { padding: 2.6rem 0 0.6rem; }

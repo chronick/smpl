@@ -38,6 +38,12 @@ if uv tool install "$REPO/packages/smpl" \
 else
   bad "uv tool install failed"; tail -5 "$WORK/install.log"; echo "FAIL=$FAIL"; exit 1
 fi
+SMPL_PYTHON="$UV_TOOL_DIR/smpl/bin/python"
+if [ ! -x "$SMPL_PYTHON" ]; then
+  bad "Python missing from installed smpl tool environment: $SMPL_PYTHON"
+  echo "FAIL=$FAIL"
+  exit 1
+fi
 
 # --- 2. two-tier heavy generator into its own venv ---------------------------------
 echo "[2] two-tier generator install ..."
@@ -51,8 +57,13 @@ fi
 SAMPLES="${SMPL_E2E_SAMPLES:-}"
 if [ -z "$SAMPLES" ]; then
   SAMPLES="$WORK/fixtures"
-  "$(command -v python3)" "$REPO/tests/e2e/make_fixtures.py" "$SAMPLES" 2>/dev/null \
-    || smpl --help >/dev/null  # fixtures need numpy/soundfile; fall back below if absent
+  # Generate with the clean-installed smpl environment, which owns numpy/soundfile.
+  # System Python is intentionally irrelevant to this user-shaped install test.
+  if ! "$SMPL_PYTHON" "$REPO/tests/e2e/make_fixtures.py" "$SAMPLES" 2>/dev/null; then
+    bad "fixture generation failed with installed smpl Python"
+    echo "FAIL=$FAIL"
+    exit 1
+  fi
 fi
 # bash 3.2 (macOS default) has no `mapfile` — read into the array portably.
 WAVS=()
@@ -82,8 +93,20 @@ smpl read "$S0" | smpl cat | python3 -c 'import sys,json; assert any(json.loads(
   && ok "cat caption present" || bad "cat caption"
 smpl read "$S0" | smpl resolve --role source | grep -q '\.wav$' && ok "resolve → path" || bad "resolve"
 if command -v smpl-gen >/dev/null; then
-  smpl gen --prompt "a distorted drum loop" --duration 0.5 | smpl cat | grep -q '"op":"gen"' \
+  smpl gen --backend synth --prompt "a distorted drum loop" --duration 0.5 | smpl cat | grep -q '"op":"gen"' \
     && ok "gen → cat (source tool + PATH discovery)" || bad "gen pipe"
+fi
+
+# --- 5. published quick start ------------------------------------------------------
+echo "[5] published quick start ..."
+QUICKSTART_REPORT="$WORK/quickstart.md"
+if smpl read "$REPO/docs/assets/loop.wav" | smpl loudness \
+    | smpl view > /dev/null 2> "$QUICKSTART_REPORT" \
+    && grep -Fq '| `loudness.integrated_lufs` | -20.79 | LUFS | loudness | loudness |' "$QUICKSTART_REPORT" \
+    && grep -Fq '| `loudness.true_peak_dbtp` | -6.71 | dBTP | loudness | loudness |' "$QUICKSTART_REPORT"; then
+  ok "published loop → documented loudness report"
+else
+  bad "published quick-start values"
 fi
 
 # --- cleanup -----------------------------------------------------------------------

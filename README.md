@@ -8,23 +8,59 @@
 heavy bytes themselves. That one choice buys multi-payload streams, a normative
 memoization contract, and lazy evaluation.*
 
-[Site](https://chronick.github.io/smpl/) · [Protocol](#the-wire-protocol) · [Install](#install) · [Pipes](#pipes) · [For LLMs](#built-for-llms) · [Skills](#install-the-agent-skills) · [Tools](#the-tools)
+[Site](https://chronick.github.io/smpl/) · [Quick start](#quick-start) · [Protocol](#the-wire-protocol) · [Install](#install) · [Pipes](#pipes) · [For LLMs](#built-for-llms) · [Skills](#install-the-agent-skills) · [Tools](#the-tools)
 
 </div>
 
 ---
 
 ```bash
-smpl read kick.wav | smpl stems | smpl select --role stem:drums \
-  | smpl filter --hp 200 | smpl env --pluck | smpl describe | smpl view
+smpl read loop.wav | smpl loudness | smpl view > /dev/null
 ```
 
-That pipe isolates *one subcomponent* of a sample and hands back a rich, multimodal
-report — text tables **+ annotated spectrogram images + features + embeddings** — for
-exactly that subcomponent, not the whole file. Every stage is a boring Unix citizen:
-NDJSON on the wire (so `jq` works), real file paths for the heavy bytes (so `sox` and
-`ffmpeg` work), content-addressed and specified to memoize (the memo key is defined;
-cache lookups are not wired up yet).
+That core-only pipe measures a sample and prints a readable report. Every stage is a
+boring Unix citizen: NDJSON on the wire (so `jq` works), real file paths for the heavy
+bytes (so `sox` and `ffmpeg` work), content-addressed and specified to memoize (the memo
+key is defined; cache lookups are not wired up yet).
+
+## Quick start
+
+This first run installs only the light core, downloads the same four-second loop shipped
+in [`docs/assets/loop.wav`](docs/assets/loop.wav), and measures it. It needs no model
+download, heavy subcommand, provider account, or API key.
+
+1. Install [`uv`](https://docs.astral.sh/uv/) if needed, then install the core in one
+   isolated environment:
+
+   ```bash
+   uv tool install git+https://github.com/chronick/smpl#subdirectory=packages/smpl \
+     --with git+https://github.com/chronick/smpl#subdirectory=packages/smplstream \
+     --with git+https://github.com/chronick/smpl#subdirectory=packages/smpl-analysis
+   ```
+
+2. Download the shipped demo loop:
+
+   ```bash
+   curl -LO https://chronick.github.io/smpl/assets/loop.wav
+   ```
+
+3. Run the core-only pipe. `view` prints its readable report to the terminal; the
+   redirect hides the NDJSON frames kept on stdout for further piping:
+
+   ```bash
+   smpl read loop.wav | smpl loudness | smpl view > /dev/null
+   ```
+
+Expected output: the Markdown feature table includes integrated loudness around
+`-20.79 LUFS` and true peak around `-6.71 dBTP`:
+
+```text
+| `loudness.integrated_lufs` | -20.79 | LUFS | loudness | loudness |
+| `loudness.true_peak_dbtp` | -6.71 | dBTP | loudness | loudness |
+```
+
+Small last-decimal differences across platforms are fine. Seeing those two measured rows
+means the install and first pipe worked.
 
 ## Why
 
@@ -112,7 +148,7 @@ feature tables with units, `marker` tracks tied to musical time, and **actual sp
 images** an LLM can open and describe. The deterministic tier does the *measuring*; the
 model's job is to *interpret*. (*If it doesn't need reasoning, it shouldn't call a model.*)
 
-The companion [`/analysis:audio`](https://github.com/chronick/smpl) skill drives these pipes
+The companion [`smpl-dissect`](skills/smpl-dissect/SKILL.md) skill drives these pipes
 for you: give it a sample and an intent ("isolate the bass and describe its texture") and it
 composes the pipe, resolves only what's needed, and reads back the report.
 
