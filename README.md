@@ -20,8 +20,9 @@ smpl read loop.wav | smpl loudness | smpl view > /dev/null
 
 That core-only pipe measures a sample and prints a readable report. Every stage is a
 boring Unix citizen: NDJSON on the wire (so `jq` works), real file paths for the heavy
-bytes (so `sox` and `ffmpeg` work), content-addressed and specified to memoize (the memo
-key is defined; cache lookups are not wired up yet).
+bytes (so `sox` and `ffmpeg` work), content-addressed and memoized (`loudness`, `spectral`,
+`qc`, and `spectrogram` consult the memo cache before computing; `--no-cache` forces a
+recompute).
 
 ## Quick start
 

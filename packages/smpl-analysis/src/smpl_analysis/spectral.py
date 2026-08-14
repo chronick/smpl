@@ -25,6 +25,10 @@ OP_VERSION = "spectral@1"
 N_FFT = 2048
 HOP_LENGTH = 512
 
+# Declared default table for the memo key (spec → *Parameter canonicalization*): omitted
+# params are filled from THIS table for THIS op_version before hashing.
+MEMO_DEFAULTS = {"n_fft": N_FFT, "hop_length": HOP_LENGTH}
+
 
 def _mean_std(values) -> dict:
     """Frame-aggregate a per-frame array into the {mean, stdev} statistic shape.
@@ -122,23 +126,40 @@ def spectral_audio_frame(
     *,
     n_fft: int = N_FFT,
     hop_length: int = HOP_LENGTH,
+    use_cache: bool = True,
 ) -> list[dict]:
     """Resolve an `audio` frame's PCM from the CAS and emit its spectral-shape feature.
 
     Returns a one-element list with the derived `feature` frame (role `spectral`), carrying
     `of`/`op`/`op_version`/`params` lineage per the tool contract. The caller is responsible
     for passthrough of the input frame.
+
+    **Memoized** (spec → *Memoization*): keyed on
+    ``(op, op_version, input audio hash, canonical params)`` with an empty env fingerprint
+    (pure-Python/deterministic). A hit skips the decode and the STFT entirely;
+    ``use_cache=False`` forces recompute and refreshes the entry. ``params.cache_hit``
+    records which path ran.
     """
-    import soundfile as sf
+    from smplstream import cas, frames as F, memo, memostore
 
-    from smplstream import cas, frames as F
-
-    src = cas.get_path(audio_frame["hash"])
-    y, sr = sf.read(str(src), dtype="float32", always_2d=True)
-    y = y.T  # (ch, n) for the mono collapse in spectral_shape
-
-    data = spectral_shape(y, sr, n_fft=n_fft, hop_length=hop_length)
     params = {"n_fft": n_fft, "hop_length": hop_length}
+    mkey = memo.memo_key(
+        OP, OP_VERSION, [audio_frame["hash"]], params=params, defaults=MEMO_DEFAULTS
+    )
+
+    data = memostore.get_json(mkey) if use_cache else None
+    cache_hit = data is not None
+
+    if not cache_hit:
+        import soundfile as sf
+
+        src = cas.get_path(audio_frame["hash"])
+        y, sr = sf.read(str(src), dtype="float32", always_2d=True)
+        y = y.T  # (ch, n) for the mono collapse in spectral_shape
+
+        data = spectral_shape(y, sr, n_fft=n_fft, hop_length=hop_length)
+        memostore.put_json(mkey, data, op=OP, op_version=OP_VERSION)
+
     return [
         F.feature_frame(
             data,
@@ -146,6 +167,6 @@ def spectral_audio_frame(
             of=audio_frame["id"],
             op=OP,
             op_version=OP_VERSION,
-            params=params,
+            params={**params, "cache_hit": cache_hit},
         )
     ]

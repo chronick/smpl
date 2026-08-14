@@ -134,3 +134,31 @@ def test_id_collision_emits_error_frame(env, tone):
     out = _run(["smpl", "resolve", frame["id"]], env, stdin=collided)
     assert any(json.loads(l).get("kind") == "error" and json.loads(l)["data"]["code"] == "id_collision"
                for l in out.stdout.splitlines() if l.strip()) or out.returncode != 0
+
+
+def _loudness_feature(out: bytes):
+    return next(f for f in _frames(out) if f["kind"] == "feature" and f["role"] == "loudness")
+
+
+def test_loudness_pipe_is_memoized(env, tone):
+    """A warm re-run of the same pipe reports a cache hit — the memo lookup is live."""
+    src = _run(["smpl", "read", tone], env).stdout
+
+    cold = _run(["smpl", "loudness"], env, stdin=src)
+    assert cold.returncode == 0, cold.stderr
+    cold_feat = _loudness_feature(cold.stdout)
+    assert cold_feat["params"]["cache_hit"] is False
+
+    warm = _run(["smpl", "loudness"], env, stdin=src)
+    warm_feat = _loudness_feature(warm.stdout)
+    assert warm_feat["params"]["cache_hit"] is True
+    assert warm_feat["data"] == cold_feat["data"]  # same measurement, no recompute
+
+
+def test_loudness_no_cache_flag_bypasses(env, tone):
+    src = _run(["smpl", "read", tone], env).stdout
+    _run(["smpl", "loudness"], env, stdin=src)  # warm the entry
+
+    bypass = _run(["smpl", "loudness", "--no-cache"], env, stdin=src)
+    assert bypass.returncode == 0, bypass.stderr
+    assert _loudness_feature(bypass.stdout)["params"]["cache_hit"] is False

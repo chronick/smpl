@@ -48,6 +48,12 @@ _LOSSY_MIN_PLAUSIBLE_CUTOFF_HZ = 10000.0
 #      dB/third-octave). Confidence ramps with steepness and needs the drop to clear this.
 _LOSSY_SLOPE_DB = 24.0
 
+# Declared default table for the memo key (spec → *Parameter canonicalization*): omitted
+# params are filled from THIS table for THIS op_version before hashing. Only true *op*
+# params belong here — `sr`/`ch` are properties of the input (already covered by the input
+# hash) and ride on the emitted frame, not on the key.
+MEMO_DEFAULTS = {"clip_threshold_dbtp": _CLIP_DBTP_THRESHOLD}
+
 
 def _dbfs(x: float) -> float:
     import math
@@ -334,47 +340,78 @@ def lossy_origin(samples, sr: int) -> dict[str, Any]:
     return out
 
 
-def qc_audio_frame(audio_frame: dict, *, want_markers: bool = True) -> list[dict]:
+def qc_audio_frame(audio_frame: dict, *, want_markers: bool = True,
+                   use_cache: bool = True) -> list[dict]:
     """Run the deterministic QC top-6 over one `audio` frame; return derived frames.
 
     Emits ONE `feature` frame carrying all the QC scalars (registry `qc.*` keys plus
     `qc.clipping.detected`), plus `marker` frames for click/gap locations.
     Lineage (`of`/`op`/`op_version`/`params`) is set on every derived frame.
+
+    **Memoized** (spec → *Memoization*): keyed on
+    ``(op, op_version, input audio hash, canonical params)`` with an empty env fingerprint
+    (pure-Python/deterministic). A hit skips the decode and all six measurements;
+    ``use_cache=False`` forces recompute and refreshes the entry. ``params.cache_hit``
+    records which path ran. ``want_markers`` is NOT part of the key: click/gap detection is
+    cheap next to the true-peak and FFT passes, so markers are always computed and cached
+    and the flag only gates emission — a ``--no-markers`` run and a full run share one entry.
     """
-    from smplstream import cas, frames as F
+    from smplstream import cas, frames as F, memo, memostore
 
-    src = cas.get_path(audio_frame["hash"])
-    samples, sr = _load(src)
     of = audio_frame.get("id")
+    params = {"clip_threshold_dbtp": _CLIP_DBTP_THRESHOLD}
+    mkey = memo.memo_key(
+        OP, OP_VERSION, [audio_frame["hash"]], params=params, defaults=MEMO_DEFAULTS
+    )
 
-    tp = true_peak_dbtp(samples, sr)
-    clipping = bool(tp >= _CLIP_DBTP_THRESHOLD)
-    corr = phase_correlation(samples)
-    dc = dc_offset_dbfs(samples)
-    snr = snr_db(samples, sr)
-    lossy = lossy_origin(samples, sr)
+    payload = memostore.get_json(mkey) if use_cache else None
+    cache_hit = payload is not None
 
-    feat: dict[str, Any] = {
-        # Clipping pass/fail ONLY. true-peak is computed internally to decide it, but the
-        # dBTP *measurement* is owned solely by the loudness tier (`loudness.true_peak_dbtp`)
-        # — "one measurement, one owner" (feature-keys.md). qc does NOT re-emit it under a
-        # qc.* key; run `smpl loudness` for the dBTP number.
-        "qc.clipping.detected": clipping,
-        "qc.dc_offset_dbfs": round(dc, 2) if dc != float("-inf") else None,
-        "qc.snr_db": snr,
-        **lossy,
+    if not cache_hit:
+        src = cas.get_path(audio_frame["hash"])
+        samples, sr = _load(src)
+
+        tp = true_peak_dbtp(samples, sr)
+        clipping = bool(tp >= _CLIP_DBTP_THRESHOLD)
+        corr = phase_correlation(samples)
+        dc = dc_offset_dbfs(samples)
+        snr = snr_db(samples, sr)
+        lossy = lossy_origin(samples, sr)
+
+        feat: dict[str, Any] = {
+            # Clipping pass/fail ONLY. true-peak is computed internally to decide it, but the
+            # dBTP *measurement* is owned solely by the loudness tier (`loudness.true_peak_dbtp`)
+            # — "one measurement, one owner" (feature-keys.md). qc does NOT re-emit it under a
+            # qc.* key; run `smpl loudness` for the dBTP number.
+            "qc.clipping.detected": clipping,
+            "qc.dc_offset_dbfs": round(dc, 2) if dc != float("-inf") else None,
+            "qc.snr_db": snr,
+            **lossy,
+        }
+        if corr is not None:
+            feat["qc.phase.correlation"] = round(corr, 4)
+
+        payload = {
+            "feat": feat,
+            "sr": sr,
+            "ch": int(samples.shape[1]),
+            "clicks": detect_clicks(samples, sr),
+            "gaps": detect_gaps(samples, sr),
+        }
+        memostore.put_json(mkey, payload, op=OP, op_version=OP_VERSION)
+
+    feat = payload["feat"]
+    frame_params = {
+        **params, "sr": payload["sr"], "ch": payload["ch"], "cache_hit": cache_hit
     }
-    if corr is not None:
-        feat["qc.phase.correlation"] = round(corr, 4)
-
-    params = {"clip_threshold_dbtp": _CLIP_DBTP_THRESHOLD, "sr": sr, "ch": samples.shape[1]}
     out: list[dict] = [
-        F.feature_frame(feat, role="qc", of=of, op=OP, op_version=OP_VERSION, params=params)
+        F.feature_frame(feat, role="qc", of=of, op=OP, op_version=OP_VERSION,
+                        params=frame_params)
     ]
 
     if want_markers:
-        clicks = detect_clicks(samples, sr)
-        gaps = detect_gaps(samples, sr)
+        clicks = payload["clicks"]
+        gaps = payload["gaps"]
         if clicks:
             out.append(
                 F.marker_frame(clicks, role="defect", of=of, op=OP, op_version=OP_VERSION)
