@@ -45,6 +45,7 @@ CROP_OP_VERSION = "crop@1"
 REVERSE_OP_VERSION = "reverse@1"
 PITCH_OP_VERSION = "pitch@1"
 STRETCH_OP_VERSION = "stretch@1"
+LOOPIFY_OP_VERSION = "loopify@1"
 
 
 # ---------------------------------------------------------------------------
@@ -1284,3 +1285,83 @@ def apply_pitch(audio_frame: dict, *, semitones: float) -> dict:
     params = {"semitones": float(semitones), "shift_ratio": round(shift, 5), "sr_hz": sr}
     return _emit_wet_audio(out, sr, src_frame=audio_frame, op="pitch",
                            op_version=PITCH_OP_VERSION, params=params)
+
+
+# ---------------------------------------------------------------------------
+# loopify — make a rendered loop TILE-SAFE (promoted from refmatch/loopify.py, vault-11gm).
+#
+# A render is not a loop. smplmix places bar-1-beat-1 at sample ~249 (a ~5 ms render offset) and
+# cuts the tail wherever the render ended, so naive repeats of its output sit progressively LATE
+# and click at every seam. Three exact fixes, in order: shift the downbeat to sample 0, force the
+# length to the bar grid, fade the seam to zero. Everything here is sample-exact numpy — no
+# analysis, no resampling — so the audio between the trim and the fade is bit-identical.
+# ---------------------------------------------------------------------------
+def apply_loopify(
+    audio_frame: dict,
+    *,
+    bpm: float,
+    bars: int = 2,
+    beats_per_bar: int = 4,
+    declick_ms: float = 5.0,
+    max_trim_ms: float = 12.0,
+) -> dict:
+    """Trim the render-offset (downbeat→0), set the exact bar length, fade the seam to zero.
+
+    The leading offset is found as the first sample above −45 dB of the peak, and is trimmed ONLY
+    when it is shorter than ``max_trim_ms`` — that bounds the fix to smplmix's ~5 ms render
+    artifact; a longer lead is a musical fade-in or pickup and is left intact (trimming it would
+    eat the performance). The body is then truncated or zero-padded to
+    ``round(bars * beats_per_bar * 60 / bpm * sr)`` samples so N repeats land exactly on the grid.
+    Finally the last ``declick_ms`` fades to 0 — the loop point is where a discontinuity becomes an
+    audible click — plus a ~1.3 ms (64-sample) fade-in that kills start DC without softening the
+    first transient, so the downbeat keeps its punch. The end fade is skipped for a body shorter
+    than ``2 * declick_ms`` (nothing but fade would survive).
+    """
+    import numpy as np
+
+    if bpm <= 0:
+        raise ValueError(f"bpm must be > 0 (got {bpm})")
+    if bars <= 0 or beats_per_bar <= 0:
+        raise ValueError(f"bars/beats_per_bar must be >= 1 (got {bars}/{beats_per_bar})")
+    if declick_ms < 0 or max_trim_ms < 0:
+        raise ValueError(f"declick_ms/max_trim_ms must be >= 0 (got {declick_ms}/{max_trim_ms})")
+
+    data, sr = _load_audio(audio_frame)
+    x = data
+    target = int(round(bars * beats_per_bar * 60.0 / float(bpm) * sr))
+    if x.shape[0] == 0:  # empty slice → passthrough with a note (mirror apply_compress)
+        params = {"bpm": float(bpm), "bars": int(bars), "beats_per_bar": int(beats_per_bar),
+                  "note": "empty input: passthrough", "sr_hz": sr}
+        return _emit_wet_audio(x, sr, src_frame=audio_frame, op="loopify",
+                               op_version=LOOPIFY_OP_VERSION, params=params)
+
+    # 1. downbeat → 0: first sample above −45 dBpeak, trimmed only if it is the render offset.
+    mag = np.abs(x).max(axis=1)
+    peak = float(mag.max()) or 1.0
+    above = np.where(mag > 10 ** (-45 / 20) * peak)[0]
+    lead = int(above[0]) if len(above) else 0
+    if 0 < lead < int(max_trim_ms / 1000 * sr):
+        x = x[lead:]
+    else:
+        lead = 0
+
+    # 2. exact bar length: truncate a long render, zero-pad one that got cut short.
+    if len(x) >= target:
+        x = x[:target].copy()
+    else:
+        x = np.pad(x, ((0, target - len(x)), (0, 0)))
+
+    # 3. de-click the seam: end → 0, plus a 64-sample fade-in against start DC.
+    d = int(declick_ms / 1000 * sr)
+    if d and len(x) > 2 * d:
+        x[-d:] *= np.linspace(1.0, 0.0, d, dtype="float32")[:, None]
+        fi = min(64, len(x))
+        x[:fi] *= np.linspace(0.0, 1.0, fi, dtype="float32")[:, None]
+
+    params = {
+        "bpm": float(bpm), "bars": int(bars), "beats_per_bar": int(beats_per_bar),
+        "lead_trimmed_samples": int(lead), "target_len_samples": int(target),
+        "declick_ms": float(declick_ms), "max_trim_ms": float(max_trim_ms), "sr_hz": sr,
+    }
+    return _emit_wet_audio(x.astype("float32"), sr, src_frame=audio_frame, op="loopify",
+                           op_version=LOOPIFY_OP_VERSION, params=params)

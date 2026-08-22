@@ -554,3 +554,99 @@ def test_automate_cutoff_drops_depth_from_params():
                               lo_hz=300, hi_hz=6000)
     assert "depth" not in wet["params"]
     assert wet["params"]["target"] == "cutoff"
+
+
+# --- loopify (tile-safety) ----------------------------------------------------------------
+
+
+def _onset_idx(x, floor_db=-45.0):
+    """First sample above ``floor_db`` of the peak — the same downbeat detector loopify uses."""
+    mag = np.abs(x).max(axis=1)
+    above = np.where(mag > 10 ** (floor_db / 20) * float(mag.max()))[0]
+    return int(above[0]) if len(above) else -1
+
+
+def _kickish(n, sr=SR, freq=60.0, decay=8.0, amp=0.8, sustain=0.15):
+    """A decaying cosine over a sustained tone — a downbeat that is LOUD at sample 0 (a sine would
+    start at zero and make the onset detector's answer a property of the phase rather than of the
+    trim), with a tail that is still ringing at the cut (which is what makes a naive repeat click)."""
+    t = np.arange(n) / sr
+    body = amp * np.exp(-decay * t) * np.cos(2 * np.pi * freq * t)
+    return (body + sustain * np.cos(2 * np.pi * 220 * t)).astype(np.float32)[:, None]
+
+
+def _rendered_loop(lead_ms, body_len, sr=SR):
+    """A smplmix-style render: ``lead_ms`` of silence before the downbeat, then the body."""
+    lead = int(lead_ms / 1000 * sr)
+    return np.concatenate([np.zeros((lead, 1), dtype=np.float32), _kickish(body_len, sr=sr)])
+
+
+def test_loopify_trims_render_offset_to_downbeat_zero(tmp_path, monkeypatch):
+    """The ~5 ms smplmix render-offset is trimmed so the downbeat lands at sample 0."""
+    monkeypatch.setenv("SMPL_CAS_DIR", str(tmp_path / "cas"))
+    target = 4 * 60 * SR // 120                       # 1 bar @ 120 BPM, 4/4 → 2 s
+    src = _put_wav(_rendered_loop(5.0, target))
+    before, _ = _load(src)
+    assert _onset_idx(before) == int(0.005 * SR)      # the render offset is really there
+
+    wet = edit.apply_loopify(src, bpm=120.0, bars=1, beats_per_bar=4)
+    assert wet["role"] == "source.wet"
+    assert wet.get("op") == "loopify" and wet.get("op_version") == edit.LOOPIFY_OP_VERSION
+    assert wet.get("of") == src["id"] and wet.get("lineage") == [src["id"]]
+    assert wet["params"]["lead_trimmed_samples"] == int(0.005 * SR)
+
+    after, _ = _load(wet)
+    # ≤2, not ==0: the 64-sample anti-DC fade-in zeroes sample 0 by design (it kills start DC
+    # without softening the transient), so the first audible sample is 1.
+    assert _onset_idx(after) <= 2
+
+
+def test_loopify_sets_exact_bar_length(tmp_path, monkeypatch):
+    """Both a long render (truncated) and a short one (zero-padded) come out on the bar grid."""
+    monkeypatch.setenv("SMPL_CAS_DIR", str(tmp_path / "cas"))
+    target = int(round(2 * 4 * 60.0 / 132.0 * SR))    # 2 bars @ 132 BPM, 4/4
+    for body in (target + 5000, target - 5000):
+        wet = edit.apply_loopify(_put_wav(_rendered_loop(5.0, body)), bpm=132.0, bars=2)
+        assert wet["params"]["target_len_samples"] == target
+        after, _ = _load(wet)
+        assert after.shape[0] == target               # exact — N repeats stay on the grid
+
+
+def test_loopify_seam_is_declicked(tmp_path, monkeypatch):
+    """The seam fades to zero, so tiling the output twice has ~no discontinuity (no click)."""
+    monkeypatch.setenv("SMPL_CAS_DIR", str(tmp_path / "cas"))
+    target = 4 * 60 * SR // 120
+    src = _put_wav(_rendered_loop(5.0, target + 3000))
+    raw, _ = _load(src)
+    wet = edit.apply_loopify(src, bpm=120.0, bars=1, declick_ms=5.0)
+    after, _ = _load(wet)
+
+    assert abs(float(after[-1, 0])) < 1e-9            # end fade actually reaches zero
+    tiled = np.concatenate([after, after])
+    seam = abs(float(tiled[target, 0] - tiled[target - 1, 0]))
+    naive = np.concatenate([raw, raw])                # the un-loopified repeat, for contrast
+    naive_seam = abs(float(naive[len(raw), 0] - naive[len(raw) - 1, 0]))
+    assert seam < 1e-6
+    assert naive_seam > 0.05                          # the click loopify removes (~0.15 here)
+
+
+def test_loopify_keeps_a_musical_fade_in(tmp_path, monkeypatch):
+    """A lead LONGER than max_trim_ms is a musical fade-in/pickup, not the render offset — keep it."""
+    monkeypatch.setenv("SMPL_CAS_DIR", str(tmp_path / "cas"))
+    target = 4 * 60 * SR // 120
+    lead = int(0.05 * SR)                             # 50 ms ≫ the 12 ms render-offset bound
+    wet = edit.apply_loopify(_put_wav(_rendered_loop(50.0, target)), bpm=120.0, bars=1,
+                             max_trim_ms=12.0)
+    assert wet["params"]["lead_trimmed_samples"] == 0
+    after, _ = _load(wet)
+    assert np.max(np.abs(after[:lead - 1])) < 1e-6    # the lead survives untouched
+    assert _onset_idx(after) >= lead - 1
+
+
+def test_loopify_rejects_bad_params(tmp_path, monkeypatch):
+    monkeypatch.setenv("SMPL_CAS_DIR", str(tmp_path / "cas"))
+    src = _put_wav(_kickish(SR))
+    with pytest.raises(ValueError):
+        edit.apply_loopify(src, bpm=0.0)
+    with pytest.raises(ValueError):
+        edit.apply_loopify(src, bpm=120.0, bars=0)
