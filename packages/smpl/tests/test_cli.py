@@ -103,6 +103,44 @@ def test_unknown_command_path_discovery(env):
     assert b"not a built-in" in r.stderr
 
 
+@pytest.mark.parametrize(
+    ("name", "project"),
+    [
+        ("stems", "smpl-stems"),
+        ("transcribe", "smpl-transcribe"),
+        ("embed", "smpl-embed"),
+        ("gen", "smpl-gen"),
+        ("cloud", "smpl-cloud"),
+        ("synth", "smpl-synth"),
+        # The MIDI twins: two console scripts, one `tools/smpl-midi` project.
+        ("transcribe-midi", "smpl-midi"),
+        ("render-midi", "smpl-midi"),
+    ],
+)
+def test_missing_first_party_tool_prints_install_command(env, tmp_path, name, project):
+    # A missing heavy tool must hand back the exact copy-pasteable install line, not just its
+    # name. PATH is emptied so an actually-installed `smpl-<x>` can't be exec'd instead.
+    e = dict(env)
+    e["PATH"] = str(tmp_path)
+    r = _run([SMPL, name], e)
+    assert r.returncode == 127
+    expected = (
+        f"uv tool install git+https://github.com/chronick/smpl#subdirectory=tools/{project}"
+    )
+    assert expected in r.stderr.decode(), r.stderr
+
+
+def test_missing_unknown_tool_has_no_install_command(env, tmp_path):
+    # We can't invent a source for someone else's `smpl-<x>` — generic message only.
+    e = dict(env)
+    e["PATH"] = str(tmp_path)
+    r = _run([SMPL, "frobnicate"], e)
+    assert r.returncode == 127
+    err = r.stderr.decode()
+    assert b"uv tool install" not in r.stderr
+    assert "not a built-in" in err and "install the tool that provides it" in err
+
+
 def test_help_lists_builtins(env):
     r = _run(["smpl", "--help"], env)
     assert b"read" in r.stdout and b"as-wav" in r.stdout and b"external commands" in r.stdout
