@@ -1257,6 +1257,136 @@ def apply_stretch(audio_frame: dict, *, ratio: float) -> dict:
                            op_version=STRETCH_OP_VERSION, params=params)
 
 
+# ---------------------------------------------------------------------------
+# paulstretch — EXTREME time-stretch into ambience (`smpl stretch --paul`).
+#
+# Nasca Octavian Paul's algorithm (public domain), promoted out of the basilica
+# ambience build script. Window the input, keep each window's magnitude spectrum
+# and RANDOMIZE the phases, then overlap-add the resynthesised windows at 50%
+# overlap while the *input* read head advances only ``window/(2·factor)`` per
+# step. Throwing the phases away is the whole trick: there is no transient left
+# to smear, so 8×/50× factors turn a sample into a smooth pad instead of the
+# metallic warble a phase vocoder gives at those ratios.
+#
+# The reference implementation's ``hinv_buf`` amplitude demodulation is
+# DELIBERATELY absent (it is commented out upstream too): with the
+# ``(1−x²)^1.25`` window at 50% overlap the overlap-add power sum ripples only
+# ~2.6%, which is inaudible, and re-applying the correction would put a
+# hop-rate line back into the energy envelope.
+# ---------------------------------------------------------------------------
+PAULSTRETCH_OP_VERSION = "paulstretch@1"
+
+# Fixed phase seed: the algorithm is randomised, but a pipe op has to be
+# reproducible (same input + params → same hash) for lineage/memoization.
+_PAULSTRETCH_SEED = 0x5A17
+
+# Partial L/R re-blend for the stereo variant (``pstretch_st``). Channels are
+# stretched with independent phase streams, so they come out uncorrelated; the
+# mix L' = a·L + b·R, R' = a·R + b·L lands inter-channel correlation at
+# 2ab/(a²+b²) = 0.6 for b/a = 1/3, with a²+b² = 1 keeping the power constant.
+_PSTRETCH_ST_A = 3.0 / (10.0 ** 0.5)
+_PSTRETCH_ST_B = 1.0 / (10.0 ** 0.5)
+
+
+def _paulstretch_mono(x, *, factor: float, windowsize: int, sr: int, rng):
+    """Paulstretch one float64 channel by ``factor`` (>1 = longer). Returns float64."""
+    import numpy as np
+
+    half = windowsize // 2
+    n = len(x)
+    if n == 0:
+        return np.zeros(0, dtype="float64")
+
+    x = np.asarray(x, dtype="float64").copy()
+    # Reference behaviour: taper the last 50 ms so the final window doesn't end on a step.
+    end_size = min(max(int(sr * 0.05), 16), n)
+    x[n - end_size:] *= np.linspace(1.0, 0.0, end_size)
+
+    window = np.power(1.0 - np.power(np.linspace(-1.0, 1.0, windowsize), 2.0), 1.25)
+    displace = half / float(factor)          # INPUT hop; the output hop stays `half`
+    n_steps = max(int(math.ceil(n / displace)), 1)
+
+    out = np.zeros(n_steps * half, dtype="float64")
+    old = np.zeros(windowsize, dtype="float64")
+    pos = 0.0
+    for i in range(n_steps):
+        istart = int(math.floor(pos))
+        buf = x[istart: istart + windowsize]
+        if len(buf) < windowsize:
+            buf = np.concatenate([buf, np.zeros(windowsize - len(buf), dtype="float64")])
+        buf = buf * window
+        mags = np.abs(np.fft.rfft(buf))
+        # Keep the magnitudes, discard the phases (uniform random, modulus 1).
+        phases = rng.uniform(0.0, 2.0 * np.pi, mags.shape[0])
+        buf = np.fft.irfft(mags * np.exp(1j * phases), n=windowsize)
+        buf = buf * window                   # window again on the way out
+        out[i * half: (i + 1) * half] = buf[:half] + old[half:]
+        old = buf
+        pos += displace
+    return out
+
+
+def apply_paulstretch(
+    audio_frame: dict,
+    *,
+    factor: float,
+    window_s: float = 0.28,
+    stereo_decorrelate: bool = False,
+) -> dict:
+    """Extreme time-stretch (paulstretch) by ``factor``, returning a wet `audio` frame.
+
+    ``factor`` is a LENGTH multiplier (8 → eight times longer); ``window_s`` is the
+    analysis/synthesis window in seconds (longer = smoother/more smeared). Stereo input is
+    stretched per channel with independent phase streams and then partially re-blended so
+    the inter-channel correlation lands ~0.6 (``pstretch_st``); ``stereo_decorrelate=True``
+    skips the re-blend and leaves the channels fully decorrelated for a wider pad.
+    """
+    import numpy as np
+
+    if factor <= 0:
+        raise ValueError(f"factor must be > 0 (got {factor})")
+    if window_s <= 0:
+        raise ValueError(f"window_s must be > 0 (got {window_s})")
+
+    data, sr = _load_audio(audio_frame)
+    windowsize = max(int(window_s * sr), 16)
+    windowsize = (windowsize // 2) * 2       # even → a clean 50% overlap
+
+    n_in = data.shape[0]
+    target = max(int(round(n_in * float(factor))), 1) if n_in else 0
+
+    chans = []
+    for c in range(data.shape[1]):
+        rng = np.random.default_rng(_PAULSTRETCH_SEED + c)
+        y = _paulstretch_mono(data[:, c].astype("float64"), factor=float(factor),
+                              windowsize=windowsize, sr=sr, rng=rng)
+        # The OLA emits whole half-windows; trim (or pad) to the exact stretched length.
+        if len(y) >= target:
+            y = y[:target]
+        else:
+            y = np.concatenate([y, np.zeros(target - len(y), dtype="float64")])
+        chans.append(y)
+
+    out = np.stack(chans, axis=1) if chans else np.zeros((0, 1), dtype="float64")
+    if out.shape[1] >= 2 and not stereo_decorrelate:
+        left, right = out[:, 0].copy(), out[:, 1].copy()
+        out[:, 0] = _PSTRETCH_ST_A * left + _PSTRETCH_ST_B * right
+        out[:, 1] = _PSTRETCH_ST_A * right + _PSTRETCH_ST_B * left
+
+    out = np.clip(out, -1.0, 1.0).astype("float32")
+    params = {
+        "mode": "paul",
+        "factor": float(factor),
+        "window_s": float(window_s),
+        "window_samples": int(windowsize),
+        "sr_hz": sr,
+    }
+    if data.shape[1] >= 2:
+        params["stereo_decorrelate"] = bool(stereo_decorrelate)
+    return _emit_wet_audio(out, sr, src_frame=audio_frame, op="paulstretch",
+                           op_version=PAULSTRETCH_OP_VERSION, params=params)
+
+
 def apply_pitch(audio_frame: dict, *, semitones: float) -> dict:
     """Pitch-shift by ``semitones`` at constant DURATION (phase-vocoder stretch + resample).
 
