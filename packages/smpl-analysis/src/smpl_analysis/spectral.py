@@ -51,9 +51,13 @@ def spectral_shape(y, sr: int, *, n_fft: int = N_FFT, hop_length: int = HOP_LENG
     import librosa
     import numpy as np
 
+    from .spectrogram import pad_short_signal
+
     y = np.asarray(y, dtype="float32")
     if y.ndim > 1:  # collapse to mono for shape descriptors
         y = np.mean(y, axis=0)
+
+    y = pad_short_signal(y, n_fft)  # short one-shots → full window (no drop, no warning)
 
     # One STFT; magnitude (S) and power spectrum reused across descriptors.
     S = np.abs(librosa.stft(y, n_fft=n_fft, hop_length=hop_length))  # (freq, frames)
