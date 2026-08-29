@@ -39,6 +39,7 @@ GAIN_OP_VERSION = "gain@1"
 NORMALIZE_OP_VERSION = "normalize@1"
 LIMIT_OP_VERSION = "limit@1"
 WIDEN_OP_VERSION = "widen@1"
+MONO_OP_VERSION = "mono@1"
 SPECTRAL_MATCH_OP_VERSION = "spectral-match@1"
 COMPRESS_OP_VERSION = "compress@1"
 CROP_OP_VERSION = "crop@1"
@@ -736,6 +737,25 @@ def apply_widen(
     }
     return _emit_wet_audio(
         out, sr, src_frame=audio_frame, op="widen", op_version=WIDEN_OP_VERSION, params=params
+    )
+
+
+def apply_mono(audio_frame: dict) -> dict:
+    """Downmix to ONE channel by averaging the channels (sox ``channels 1``).
+
+    The narrow end of the stereo-image vocabulary and the bass bus's glue: averaging is
+    level-neutral for correlated material (identical channels come back at the same
+    amplitude) and it *guarantees* mono, which scaling the side channel (``widen`` with a
+    big negative gain) only ever approaches. Mono input passes through unchanged.
+    """
+    import numpy as np
+
+    data, sr = _load_audio(audio_frame)
+    ch_in = int(data.shape[1])
+    out = np.ascontiguousarray(data.astype("float64").mean(axis=1, keepdims=True), dtype="float32")
+    params = {"channels_in": ch_in, "channels_out": 1, "sr_hz": sr}
+    return _emit_wet_audio(
+        out, sr, src_frame=audio_frame, op="mono", op_version=MONO_OP_VERSION, params=params
     )
 
 
