@@ -162,6 +162,7 @@ composes the pipe, resolves only what's needed, and reads back the report.
 | `cat` / `describe` / `describe-all` | describe-as-filter: passthrough + features + caption + image; `-all` aggregates the whole light tier |
 | `loudness` | integrated LUFS, true-peak dBTP, short-term LUFS |
 | `spectral` | spectral-shape family (flatness/crest/spread/rolloff/contrast/slope) |
+| `chords` | chord-span markers (`{t, dur, label, sample}`) + key/tuning feature |
 | `qc` | clipping, phase/mono, DC, SNR, clicks/gaps, lossy-origin cutoff |
 | `spectrogram` | annotated mel / CQT / HPSS spectrograms + waveform (PNG) |
 | `convert` | format / sample-rate / bit-depth conversion (new frame, own hash) |
