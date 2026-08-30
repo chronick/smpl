@@ -82,8 +82,13 @@ def _emit_wet_audio(
     op: str,
     op_version: str,
     params: dict,
+    role: Optional[str] = None,
 ) -> dict:
-    """CAS a processed (frames, ch) float32 array as WAV and return a wet `audio` frame."""
+    """CAS a processed (frames, ch) float32 array as WAV and return a wet `audio` frame.
+
+    ``role`` overrides the default ``<role>.wet`` — used by ops that emit SEVERAL wet frames
+    from one source (e.g. ``variants``) and so need a distinct role per output.
+    """
     import numpy as np
     import soundfile as sf
 
@@ -102,7 +107,7 @@ def _emit_wet_audio(
         sr=meta.get("sr", sr),
         ch=meta.get("ch", arr.shape[1]),
         dur=meta.get("dur", arr.shape[0] / sr if sr else 0.0),
-        role=_wet_role(src_frame),
+        role=role or _wet_role(src_frame),
         of=src_frame.get("id"),
         lineage=[src_frame["id"]] if src_frame.get("id") else None,
         op=op,
@@ -1044,6 +1049,102 @@ def apply_automate(audio_frame: dict, *, target: str, shape: str = "sine", cycle
     out = np.clip(out, -1.0, 1.0).astype("float32")
     return _emit_wet_audio(out, sr, src_frame=audio_frame, op="automate",
                            op_version=AUTOMATE_OP_VERSION, params=params)
+
+
+# ---------------------------------------------------------------------------
+# variants — N STATIC filter renders across a log-spaced cutoff range (palette variants).
+#
+# A one-shot palette printed once reads dead: every hit is the same timbre, and with no live
+# filter under your hands there is no closed→open, dark→bright gesture to play. `apply_automate
+# (target="cutoff")` bakes that movement WITHIN one render; this bakes it ACROSS renders — the
+# same sweep frozen at N points, which is the closed / muted / half / open / bright palette a
+# sound designer would print by hand. No new DSP: each variant is the automate sweep held at a
+# constant cutoff (same resonant RBJ low-pass, same steady-state init), so variant k IS the
+# sweep paused at step k. Pure numpy/scipy, no RNG → same input + params ⇒ identical bytes.
+# ---------------------------------------------------------------------------
+VARIANTS_OP_VERSION = "variants@1"
+
+MAX_VARIANT_STEPS = 64
+
+
+def _variant_role(audio_frame: dict, index: int) -> str:
+    """``<base>.variant:<k>`` (k is 1-based) — distinct per step so `select --role` can pick one."""
+    base = _wet_role(audio_frame)
+    base = base[: -len(".wet")] if base.endswith(".wet") else base
+    return f"{base}.variant:{index}"
+
+
+def variant_cutoffs(lo_hz: float, hi_hz: float, steps: int) -> list[float]:
+    """The log-spaced cutoff ladder ``lo..hi`` (inclusive at both ends), ``steps`` long.
+
+    Log, not linear: pitch/brightness is perceived geometrically, so equal ratios are what
+    read as equal steps of "more open". ``steps == 1`` degenerates to ``[lo]``.
+    """
+    import numpy as np
+
+    return [float(f) for f in np.geomspace(float(lo_hz), float(hi_hz), int(steps))]
+
+
+def render_cutoff_variants(
+    audio_frame: dict,
+    *,
+    lo_hz: float = 200.0,
+    hi_hz: float = 8000.0,
+    steps: int = 5,
+    resonance: float = 0.707,
+) -> list[dict]:
+    """Render ``steps`` timbral variants of one source, one per log-spaced cutoff in lo..hi.
+
+    Returns a list of wet `audio` frames, closed (``lo_hz``) → open (``hi_hz``), each with role
+    ``<base>.variant:<k>`` (k = 1..steps) and full lineage. ``hi_hz`` is clamped to 0.49·sr and
+    ``lo_hz`` floored at 20 Hz (the automate sweep's limits); ``resonance`` is the low-pass Q
+    (0.707 flat, 3-10 = a resonant, vocal-sounding edge at the cutoff).
+    """
+    import numpy as np
+
+    steps = int(steps)
+    if steps < 1:
+        raise ValueError(f"steps must be >= 1 (got {steps})")
+    if steps > MAX_VARIANT_STEPS:
+        raise ValueError(f"steps must be <= {MAX_VARIANT_STEPS} (got {steps})")
+    if resonance <= 0:
+        raise ValueError(f"resonance must be > 0 (got {resonance})")
+
+    data, sr = _load_audio(audio_frame)
+    lo = max(float(lo_hz), 20.0)
+    eff_hi = min(float(hi_hz), 0.49 * sr)
+    if steps > 1 and not lo < eff_hi:
+        raise ValueError(f"empty cutoff range: lo {lo:.1f} Hz >= hi {eff_hi:.1f} Hz (sr {sr})")
+
+    cutoffs = variant_cutoffs(lo, eff_hi, steps)
+    n = data.shape[0]
+
+    out: list[dict] = []
+    for k, fc in enumerate(cutoffs, start=1):
+        params = {
+            "variant_index": k,
+            "steps": steps,
+            "cutoff_hz": round(float(fc), 3),
+            "lo_hz": round(lo, 1),
+            "hi_hz": round(eff_hi, 1),
+            "resonance": float(resonance),
+            "spacing": "log",
+            "sr_hz": sr,
+        }
+        if n == 0:
+            params["noop"] = "empty"
+            wet = data
+        else:
+            # One block over the whole clip: `_sweep_lowpass` with a constant cutoff is exactly
+            # the automate sweep frozen at fc (identical coefficients + steady-state init).
+            const = np.full(n, float(fc))
+            wet = _sweep_lowpass(data, sr, const, float(resonance), n)
+            wet = np.clip(wet, -1.0, 1.0).astype("float32")
+        out.append(_emit_wet_audio(
+            wet, sr, src_frame=audio_frame, op="variants", op_version=VARIANTS_OP_VERSION,
+            params=params, role=_variant_role(audio_frame, k),
+        ))
+    return out
 
 
 # ---------------------------------------------------------------------------

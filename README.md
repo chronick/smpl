@@ -169,7 +169,7 @@ composes the pipe, resolves only what's needed, and reads back the report.
 | `gain` `normalize` `limit` | level management: dB gain (pure), LUFS-normalize (+ true-peak ceiling), true-peak limit |
 | `maximize` `compress` | look-ahead brickwall limiting (drive + cap); downward compression |
 | `filter` `eq` `env` `fx` `slice` `select` | the edit filters + stream selection |
-| `automate` `stereoize` `widen` `spectral-match` | parameter motion over time; mono→wide; M-S width; EQ toward a reference |
+| `automate` `variants` `stereoize` `widen` `spectral-match` | parameter motion over time; N baked closed→open filter variants of one source; mono→wide; M-S width; EQ toward a reference |
 | `pattern` | step-grid drum-loop DSL → smplmix session (velocity / pitch / swing / nudge) |
 | `view` | the multimodal LLM/human report |
 | `gen` · `cloud` · `transcribe` · `stems` · `embed` · `synth` | PATH-discovered heavy tools (own venvs) |
