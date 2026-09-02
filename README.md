@@ -8,7 +8,7 @@
 heavy bytes themselves. That one choice buys multi-payload streams, a normative
 memoization contract, and lazy evaluation.*
 
-[Site](https://chronick.github.io/smpl/) · [Quick start](#quick-start) · [Protocol](#the-wire-protocol) · [Install](#install) · [Pipes](#pipes) · [For LLMs](#built-for-llms) · [Skills](#install-the-agent-skills) · [Tools](#the-tools)
+[Site](https://algonormative.github.io/smpl/) · [Quick start](#quick-start) · [Protocol](#the-wire-protocol) · [Install](#install) · [Pipes](#pipes) · [For LLMs](#built-for-llms) · [Skills](#install-the-agent-skills) · [Tools](#the-tools)
 
 </div>
 
@@ -34,15 +34,15 @@ download, heavy subcommand, provider account, or API key.
    isolated environment:
 
    ```bash
-   uv tool install git+https://github.com/chronick/smpl#subdirectory=packages/smpl \
-     --with git+https://github.com/chronick/smpl#subdirectory=packages/smplstream \
-     --with git+https://github.com/chronick/smpl#subdirectory=packages/smpl-analysis
+   uv tool install git+https://github.com/algonormative/smpl#subdirectory=packages/smpl \
+     --with git+https://github.com/algonormative/smpl#subdirectory=packages/smplstream \
+     --with git+https://github.com/algonormative/smpl#subdirectory=packages/smpl-analysis
    ```
 
 2. Download the shipped demo loop:
 
    ```bash
-   curl -LO https://chronick.github.io/smpl/assets/loop.wav
+   curl -LO https://algonormative.github.io/smpl/assets/loop.wav
    ```
 
 3. Run the core-only pipe. `view` prints its readable report to the terminal; the
@@ -99,12 +99,12 @@ integrity, units & timebase — is in [`spec.md`](spec.md). It is versioned like
 
 ```bash
 # the light core (smplstream + smpl-analysis + smpl) — one isolated install
-uv tool install git+https://github.com/chronick/smpl#subdirectory=packages/smpl \
-  --with git+https://github.com/chronick/smpl#subdirectory=packages/smplstream \
-  --with git+https://github.com/chronick/smpl#subdirectory=packages/smpl-analysis
+uv tool install git+https://github.com/algonormative/smpl#subdirectory=packages/smpl \
+  --with git+https://github.com/algonormative/smpl#subdirectory=packages/smplstream \
+  --with git+https://github.com/algonormative/smpl#subdirectory=packages/smpl-analysis
 
 # heavy tools install separately, into their OWN isolated venvs (two-tier):
-uv tool install git+https://github.com/chronick/smpl#subdirectory=tools/smpl-stems
+uv tool install git+https://github.com/algonormative/smpl#subdirectory=tools/smpl-stems
 ```
 
 `ffmpeg` and `sox` on PATH unlock the raw-WAV bridge and `convert`. The core cold-starts
@@ -181,7 +181,7 @@ Two agent skills ship in `skills/`, installable with the open-source `skills` CL
 so Codex and Claude Code share one managed copy:
 
 ```bash
-npx skills add chronick/smpl --global --agent codex claude-code --yes
+npx skills add algonormative/smpl --global --agent codex claude-code --yes
 ```
 
 - **`smpl-dissect`** — isolate a stem, slice, or filtered band and describe exactly
